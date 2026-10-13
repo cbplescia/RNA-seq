@@ -18,9 +18,32 @@ import sys
 from collections import Counter
 
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
-from gfp_tools import read_fasta, revcomp  # noqa: E402
+from gfp_tools import CODONS, longest_orf, read_fasta, revcomp, translate  # noqa: E402
 
 BARS = " ▁▂▃▄▅▆▇█"
+
+
+def place_by_peptide(read, aa_pos_of, pepk):
+    """Nucleotide offset of a read placed through its translation.
+
+    Used for reads found in translated mode: they encode the reference protein
+    but, being a different codon variant, share no exact nucleotide k-mer with
+    it. Returns an offset into the reference CDS, or None.
+    """
+    for strand in (read, revcomp(read)):
+        for frame in range(3):
+            s = strand[frame:]
+            n = (len(s) // 3) * 3
+            if n < pepk * 3:
+                continue
+            aa = "".join(CODONS.get(s[i:i + 3], "X") for i in range(0, n, 3))
+            for i in range(len(aa) - pepk + 1):
+                p = aa_pos_of.get(aa[i:i + pepk])
+                if p is not None:
+                    # Residue index -> nucleotide offset, minus the read's own
+                    # lead-in so the footprint starts where the read starts.
+                    return max(0, (p - i) * 3)
+    return None
 
 
 def profile(ref_path, hit_paths, k=31):
@@ -36,6 +59,18 @@ def profile(ref_path, hit_paths, k=31):
         pos_of.setdefault(kmer, i)
         pos_of.setdefault(revcomp(kmer), i)
 
+    # Peptide fallback, for hits found in translated mode against a different
+    # GFP variant: those reads share no exact nucleotide k-mer with the
+    # reference, so they can only be placed through the protein.
+    ref_cds = ref
+    if translate(ref)[:-1].count("*"):
+        found = longest_orf(ref)
+        if found:
+            ref_cds = found[0]
+    ref_aa = translate(ref_cds).rstrip("*")
+    PEPK = 9
+    aa_pos_of = {ref_aa[i:i + PEPK]: i for i in range(len(ref_aa) - PEPK + 1)}
+
     print(f"reference: {name}  ({len(ref)} nt)\n")
 
     for path in hit_paths:
@@ -47,6 +82,7 @@ def profile(ref_path, hit_paths, k=31):
 
         cov = Counter()
         placed = unplaced = 0
+        placed_by_peptide = 0
         for r in reads:
             found = None
             for i in range(len(r) - k + 1):
@@ -54,6 +90,10 @@ def profile(ref_path, hit_paths, k=31):
                 if p is not None:
                     found = p
                     break
+            if found is None:
+                found = place_by_peptide(r, aa_pos_of, PEPK)
+                if found is not None:
+                    placed_by_peptide += 1
             if found is None:
                 unplaced += 1
                 continue
@@ -64,7 +104,9 @@ def profile(ref_path, hit_paths, k=31):
                 cov[j] += 1
 
         label = path.rsplit("/", 1)[-1]
-        print(f"--- {label}: {len(reads)} reads, {placed} placed, {unplaced} unplaced")
+        extra = f", {placed_by_peptide} via protein" if placed_by_peptide else ""
+        print(f"--- {label}: {len(reads)} reads, {placed} placed{extra}, "
+              f"{unplaced} unplaced")
         if not placed:
             print("    nothing to plot\n")
             continue

@@ -17,12 +17,15 @@ cd "$(dirname "$0")" && source ../config.sh
 : "${GFP_FA:=$PROJ/ref/gfp.fa}"
 : "${MAX_READS:=4000000}"   # reads screened per mate; 0 = every read
 : "${KEEP_HITS:=200}"       # matching reads saved per sample for inspection
-: "${K:=31}"
-: "${STEP:=10}"
+: "${MODE:=nt}"             # nt = exact nucleotide; aa = translated (see below)
+: "${K:=31}"                # nucleotide k-mer length
+: "${STEP:=10}"             # nucleotide tiling stride
+: "${PEPK:=9}"              # peptide window length for MODE=aa
 
 OUT="$PROJ/gfp_screen"
 TSV="$OUT/gfp_kmer_hits.tsv"
 PAT="$OUT/gfp_kmers.txt"
+PEP="$OUT/gfp_peptides.txt"
 
 if [[ ! -s "$GFP_FA" ]]; then
     cat >&2 <<EOF
@@ -42,8 +45,46 @@ echo "===== validating $GFP_FA ====="
 python3 -I gfp_tools.py validate "$GFP_FA"
 echo
 
-python3 -I gfp_tools.py kmers "$GFP_FA" "$K" "$STEP" > "$PAT"
-echo "Search set: $(wc -l < "$PAT" | tr -d ' ') ${K}-mers (both strands, every ${STEP} nt)"
+SCRIPT_DIR="$PWD"
+
+if [[ "$MODE" == "aa" ]]; then
+    python3 -I gfp_tools.py peptides "$GFP_FA" "$PEPK" > "$PEP"
+    echo "Search set: $(wc -l < "$PEP" | tr -d ' ') ${PEPK}-aa peptide windows"
+    echo "Mode: TRANSLATED - six-frame translation of every read."
+    echo "      Finds a GFP whose codon usage differs from the reference"
+    echo "      (EGFP vs wild-type avGFP), at maybe 10x the runtime of nt mode."
+    filter_stage() { python3 -I "$SCRIPT_DIR/aa_filter.py" "$PEP"; }
+else
+    python3 -I gfp_tools.py kmers "$GFP_FA" "$K" "$STEP" > "$PAT"
+    echo "Search set: $(wc -l < "$PAT" | tr -d ' ') ${K}-mers (both strands, every ${STEP} nt)"
+    echo "Mode: EXACT nucleotide - only finds the variant you supplied."
+    filter_stage() { grep -F -f "$PAT"; }
+fi
+
+# Positive control on the search machinery itself. A stretch of the reference
+# must come back through the filter. This cannot tell you whether the reference
+# is the right GFP variant - it catches the other way of getting a zero, where
+# the filter is silently broken and every sample looks empty.
+CONTROL_SEQ="$(python3 -I - "$GFP_FA" <<'PY'
+import sys
+sys.path.insert(0, ".")
+from gfp_tools import longest_orf, read_fasta, translate
+seq = read_fasta(sys.argv[1])[0][1]
+if translate(seq)[:-1].count("*"):
+    found = longest_orf(seq)
+    if found:
+        seq = found[0]
+print(seq[:72])
+PY
+)"
+if [[ -z "$(printf '%s\n' "$CONTROL_SEQ" | filter_stage || true)" ]]; then
+    echo >&2
+    echo "FAILED self-check: a sequence taken straight from the reference did" >&2
+    echo "not come back through the filter. The search is broken, so every" >&2
+    echo "sample would read as zero. Not screening." >&2
+    exit 1
+fi
+echo "Self-check: reference sequence is detected by the filter."
 
 if [[ "$MAX_READS" -eq 0 ]]; then
     echo "Depth: every read in every sample (slow - hours; full sensitivity)"
@@ -63,7 +104,7 @@ screen_one_mate() {  # $1 = fastq.gz   $2 = file to collect matching reads into
         | awk -v max="$MAX_READS" -v cf="$ctr" \
               'NR%4==2 { n++; print; if (max > 0 && n >= max) exit }
                END     { print n+0 > cf }' \
-        | grep -F -f "$PAT" >> "$sink" || true
+        | filter_stage >> "$sink" || true
     set -o pipefail
     MATE_READS="$(cat "$ctr" 2>/dev/null || echo 0)"
     rm -f "$ctr"
@@ -90,6 +131,12 @@ for s in "${SAMPLES[@]}"; do
     h2=$(( h_all - h1 ))
 
     screened=$(( reads_r1 + reads_r2 ))
+    if [[ "$screened" -eq 0 ]]; then
+        echo >&2
+        echo "ABORT: sample $s counted zero reads screened, but its FASTQs are" >&2
+        echo "non-empty. The read stream broke rather than finding nothing." >&2
+        exit 1
+    fi
     if [[ "$screened" -gt 0 ]]; then
         per10m=$(python3 -c "print(f'{$h_all / $screened * 1e7:.2f}')")
     else

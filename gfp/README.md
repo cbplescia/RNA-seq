@@ -20,10 +20,64 @@ single-sequence index has no host to compete, so host reads that merely
 resemble the construct get assigned to it. For the question "is there anything
 there at all", exact matching is both stricter and simpler.
 
-The cost is that exact matching is **variant-specific**. EGFP, wild-type avGFP,
-sfGFP and codon-optimised versions differ enough that 31-mers from one will not
-match another. This is why the sequence has to be the one actually in your
-construct, and why the screen validates the record before using it.
+The cost is that exact matching is **variant-specific**, and more brutally so
+than it sounds. EGFP is codon-optimised relative to wild-type avGFP: the
+proteins are nearly identical but a fifth to a quarter of the nucleotides
+differ, scattered across third codon positions. A shared 31-mer needs about ten
+consecutive untouched codons, which essentially never happens. In a synthetic
+test at 66% nucleotide identity with an identical protein, the two variants
+shared **zero** exact 31-mers, and nucleotide mode returned zero hits on data
+containing 120 planted reads.
+
+So a zero in nucleotide mode means *"no reads from this exact variant"*, not
+*"no GFP"*. Two ways out:
+
+- supply the GFP actually in your construct (best: most specific, and fastest)
+- run `MODE=aa`, which searches translated reads and survives codon
+  differences — see **Variant-tolerant mode** below
+
+## Variant-tolerant mode (`MODE=aa`)
+
+```bash
+MODE=aa ./01_gfp_kmer_screen.sh
+```
+
+Each read is translated in all six frames and checked for a 9-residue window of
+the reference protein. GFP variants differ at a handful of residues even when
+their codon usage differs everywhere, so a protein-level search finds one
+variant using another as the reference. A 9-mer peptide match is still
+specific — the mouse proteome contains no GFP.
+
+Validated: with a reference sharing **zero** 31-mers with the planted reads, nt
+mode found 0 and aa mode found 240 of 240, with the negative control still at
+zero and full coverage across the record.
+
+The trade-off is speed. It pushes every read through Python at roughly 30,000
+reads/s, against `grep`'s streaming speed. A 500k-read-per-mate pass over 33
+samples is around 15–20 minutes; full depth would be a day or more, so aa mode
+is for the fast pass. If you need full depth, get the construct's own sequence
+and use nucleotide mode.
+
+Both modes run a **self-check** before screening: a stretch of the reference is
+pushed through the filter and must come back. That catches a broken search —
+which otherwise reports every sample as zero, indistinguishable from a real
+negative. It does not, and cannot, tell you whether the reference is the right
+variant.
+
+## If your reference is a GenBank mRNA record
+
+An NCBI mRNA entry (`...complete cds`) includes the UTRs, so the record is not
+the bare CDS and frame 1 is not the coding frame. The validator detects this,
+finds the real ORF, confirms the chromophore inside it, and tells you to
+extract it:
+
+```bash
+python3 -I gfp_tools.py orf GFP.FASTA > ref/gfp.fa
+python3 -I gfp_tools.py validate ref/gfp.fa
+```
+
+`orf` takes the longest ATG-to-stop ORF on either strand, so it also fixes a
+reverse-complemented record.
 
 ## Step 1 — get the reporter sequence in place
 
