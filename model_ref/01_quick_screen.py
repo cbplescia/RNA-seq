@@ -7,8 +7,10 @@ and per-feature read counts - not abundance.
 
   python3 -I model_ref/01_quick_screen.py
 
-  REF_DIR    directory holding genome.fa and annotation.gtf
-             default: $PROJ/model_reference
+  REF_DIR    directory holding the replicon FASTA and its annotation
+             default: $PROJ/model_reference, or ./model_reference
+  GENOME_FA  the FASTA, if the directory holds more than one
+  GTF        the annotation, if the directory holds more than one
   SAMPLES    comma-separated sample ids, default 1,2,3,4,5,6,7,8,9
   MAX_READS  reads per mate per sample, default 1000000; 0 = every read
   K, STEP    k-mer length and tiling stride, default 31 and 10
@@ -26,13 +28,64 @@ import os
 import sys
 from collections import Counter, defaultdict
 
-PROJ = os.environ.get("PROJ") or os.path.join(
+DEFAULT_PROJ = os.path.join(
     os.path.expanduser("~"),
     "Documents/aviti_rnaseq/2025/aviti",
     "20251009-100725_Maury_25161_WivfFacICOTHFAUJwSPeHBEFfCfNtCRpUSgVGUkz",
     "results/Maury_25161")
 
+# Prefer an explicit PROJ, then the working directory if it looks like the
+# project, then the known path - so running from inside Maury_25161 just works.
+PROJ = os.environ.get("PROJ") or (
+    os.getcwd() if os.path.isdir(os.path.join(os.getcwd(), "model_reference"))
+    or os.path.isdir(os.path.join(os.getcwd(), "trimmed_fastq"))
+    else DEFAULT_PROJ)
+
 REF_DIR = os.environ.get("REF_DIR", os.path.join(PROJ, "model_reference"))
+
+FASTA_EXT = (".fa", ".fasta", ".fna", ".fas", ".seq", ".txt")
+GTF_EXT = (".gtf", ".gff", ".gff3", ".gtf.gz", ".gff.gz", ".gff3.gz")
+
+
+def find_one(directory, exts, env_var, label):
+    """The one file in `directory` with one of `exts`, case-insensitively.
+
+    File naming is not something to hardcode: a reference exported by hand may
+    be genome.fa, genome.FASTA or sequence.fna. Several candidates is an error
+    rather than a guess, since silently picking the wrong one would produce a
+    plausible but meaningless result.
+    """
+    override = os.environ.get(env_var)
+    if override:
+        if not os.path.exists(override):
+            sys.exit(f"{env_var}={override} does not exist")
+        return override
+    if not os.path.isdir(directory):
+        sys.exit(f"not a directory: {directory}\n"
+                 "Set REF_DIR to the folder holding your replicon reference.")
+
+    cands = []
+    for fn in sorted(os.listdir(directory)):
+        low = fn.lower()
+        base = low[:-3] if low.endswith(".gz") else low
+        if any(base.endswith(e) for e in exts):
+            cands.append(os.path.join(directory, fn))
+    # A .txt only counts as a FASTA if nothing better is present.
+    strong = [c for c in cands if not c.lower().endswith((".txt", ".txt.gz"))]
+    if strong:
+        cands = strong
+
+    if not cands:
+        listing = "\n".join(f"    {f}" for f in sorted(os.listdir(directory))) or "    (empty)"
+        sys.exit(f"no {label} found in {directory}\n"
+                 f"  files present:\n{listing}\n"
+                 f"  Set {env_var} to the file to use.")
+    if len(cands) > 1:
+        opts = "\n".join(f"    {c}" for c in cands)
+        sys.exit(f"more than one {label} in {directory}:\n{opts}\n"
+                 f"  Set {env_var} to pick one - guessing could silently "
+                 "produce a meaningless result.")
+    return cands[0]
 SAMPLES = os.environ.get("SAMPLES", "1,2,3,4,5,6,7,8,9").split(",")
 MAX_READS = int(os.environ.get("MAX_READS", 1_000_000))
 K = int(os.environ.get("K", 31))
@@ -106,11 +159,13 @@ def parse_gtf(path):
 
 
 def main():
-    gfa = os.path.join(REF_DIR, "genome.fa")
-    gtf = os.path.join(REF_DIR, "annotation.gtf")
-    for p in (gfa, gtf):
-        if not os.path.exists(p):
-            sys.exit(f"not found: {p}\nSet REF_DIR if your reference is elsewhere.")
+    gfa = find_one(REF_DIR, FASTA_EXT, "GENOME_FA", "FASTA file")
+    gtf = find_one(REF_DIR, GTF_EXT, "GTF", "GTF/GFF annotation")
+
+    print(f"PROJ    {PROJ}")
+    print(f"REF_DIR {REF_DIR}")
+    print(f"  FASTA {os.path.basename(gfa)}")
+    print(f"  GTF   {os.path.basename(gtf)}\n")
 
     recs = read_fasta(gfa)
     if not recs:
