@@ -3,6 +3,20 @@
 This is the one input I cannot generate for you. Everything else in the
 rebuild is derived from files you already have.
 
+**The reporter record is an exception — it can come from the data.** If the
+libraries contain reporter RNA, `gfp/03_recover_construct_gfp.py` reconstructs
+the reporter's nucleotide sequence from the reads themselves, including its own
+start codon and the sequence flanking the cassette. That record is empirically
+derived from the libraries being quantified rather than from a map that may not
+match what is in the freezer, so prefer it over a vector sequence when both are
+available. See `gfp/README.md`.
+
+A FASTA holding only the reporter is already worth running: the rebuild then
+gives properly normalised reporter counts with the whole transcriptome and
+genome decoys competing for every read, and delivers the decoy, bias-correction
+and size-factor fixes to the host analysis at the same time. The viral and
+minigenome records can be added later without redoing that work.
+
 Put the finished file at `ref/recombinant_model.fa` inside the project
 directory (or point `VIRAL_FA` somewhere else).
 
