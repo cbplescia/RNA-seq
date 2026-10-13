@@ -54,7 +54,26 @@ manufactures apparent host-gene changes. Size factors are now estimated from
 host genes only, via `estimateSizeFactors(controlGenes = ...)`, while the
 construct stays in the object so it can still be inspected.
 
-## Running it
+## Just checking for GFP reporter reads? Start in `gfp/`
+
+The replicon rebuild below is staged and ready, but it needs the construct
+sequences and an hour of index building. If the immediate question is only
+*does anything map to the GFP reporter*, `gfp/` answers it on its own — exact
+k-mer matching against the trimmed FASTQs, no index, no reindexing, nothing
+touched that the interferon analyses depend on.
+
+```bash
+cd gfp
+./00_make_gfp_fasta.sh ~/path/to/construct.gb   # or set GFP_FA to a FASTA
+./01_gfp_kmer_screen.sh                         # all 33 samples, fast pass
+python3 -I 02_gfp_hit_profile.py "$PROJ/ref/gfp.fa" "$PROJ"/gfp_screen/hits_*.txt
+```
+
+See `gfp/README.md`. The rebuild below is unaffected either way, and the GFP
+record validated there drops straight into `recombinant_model.fa` when you come
+back to the replicon.
+
+## Running the full rebuild
 
 ```bash
 conda activate salmon_env          # salmon 1.10.3

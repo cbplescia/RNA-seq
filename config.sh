@@ -14,6 +14,11 @@ GTF="$PROJ/ref/Mus_musculus.GRCm39.109.gtf"
 # See viral_refs/README.md in the git repo for how to build this.
 VIRAL_FA="${VIRAL_FA:-$PROJ/ref/recombinant_model.fa}"
 
+# The GFP reporter alone, for the standalone presence/absence screen in gfp/.
+# Independent of VIRAL_FA: the screen runs without the replicon being ready,
+# and the same record can later be folded into VIRAL_FA for the full rebuild.
+GFP_FA="${GFP_FA:-$PROJ/ref/gfp.fa}"
+
 # Outputs of the rebuild (kept separate from the originals so nothing is overwritten)
 GENTROME="$PROJ/ref/gentrome_GRCm39.109_plus_model.fa"
 DECOYS="$PROJ/ref/decoys.txt"
