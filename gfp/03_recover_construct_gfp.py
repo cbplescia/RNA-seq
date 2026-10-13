@@ -34,6 +34,11 @@ from gfp_tools import (CODONS, find_chromophore, longest_orf,  # noqa: E402
 MIN_DEPTH = int(os.environ.get("MIN_DEPTH", 3))
 PEPK = int(os.environ.get("PEPK", 9))
 OUT = os.environ.get("OUT", "ref/construct_gfp_recovered.fa")
+# Reads anchored inside the ORF often extend past the reference CDS. Piling up
+# those overhangs recovers the construct's own start codon (which a reference
+# with a different N-terminus places outside its coordinates) and whatever
+# sequence flanks the cassette.
+FLANK = int(os.environ.get("FLANK", 150))
 
 
 def ref_cds(path):
@@ -105,7 +110,7 @@ def main():
             placed_here += 1
             for j, base in enumerate(oriented):
                 pos = off + j
-                if 0 <= pos < len(ref) and base in "ACGT":
+                if -FLANK <= pos < len(ref) + FLANK and base in "ACGT":
                     pile[pos][base] += 1
         per_file[path.rsplit("/", 1)[-1]] = (len(reads), placed_here)
 
@@ -117,16 +122,18 @@ def main():
         sys.exit("\nNothing could be placed - check that these hit files came "
                  "from a MODE=aa run against this same reference.")
 
-    # Consensus
-    cons, depths, low = [], [], 0
-    for i in range(len(ref)):
+    def call(i):
         c = pile.get(i)
         d = sum(c.values()) if c else 0
+        return (c.most_common(1)[0][0] if d >= MIN_DEPTH else "N"), d
+
+    # Consensus over the reference CDS, which is what the identity stats use.
+    cons, depths, low = [], [], 0
+    for i in range(len(ref)):
+        b, d = call(i)
+        cons.append(b)
         depths.append(d)
-        if d >= MIN_DEPTH:
-            cons.append(c.most_common(1)[0][0])
-        else:
-            cons.append("N")
+        if b == "N":
             low += 1
     consensus = "".join(cons)
 
@@ -135,6 +142,25 @@ def main():
     print(f"positions      {called}/{len(ref)} called at depth >= {MIN_DEPTH}"
           f"  ({called / len(ref):.0%})")
     print(f"mean depth     {mean_depth:.0f}x")
+
+    # Flanks: how far the overhangs reach, contiguously, either side.
+    up = []
+    for i in range(-1, -FLANK - 1, -1):
+        b, _ = call(i)
+        if b == "N":
+            break
+        up.append(b)
+    upstream = "".join(reversed(up))
+    down = []
+    for i in range(len(ref), len(ref) + FLANK):
+        b, _ = call(i)
+        if b == "N":
+            break
+        down.append(b)
+    downstream = "".join(down)
+    if FLANK:
+        print(f"flanks         {len(upstream)} nt upstream, "
+              f"{len(downstream)} nt downstream recovered")
 
     # Divergence from the reference, and what it means
     comparable = [(a, b) for a, b in zip(ref, consensus) if b != "N"]
@@ -181,13 +207,47 @@ def main():
     for f, (tot, pl) in sorted(per_file.items()):
         print(f"  {f:<28} {tot:>5} / {pl}")
 
+    # The construct's own ORF, found in the flank-extended sequence. A
+    # reference with a different N-terminus puts the real start codon outside
+    # its own coordinates, so this is where an inserted residue shows up - and
+    # where the record to actually use comes from.
+    full = upstream + consensus + downstream
+    if FLANK and "N" not in full:
+        found = longest_orf(full)
+        if found:
+            cds, strand, start = found
+            rel = start - len(upstream)
+            caa = translate(cds)
+            print(f"\nconstruct ORF  {len(cds)} nt ({len(caa) - 1} aa) on the "
+                  f"{strand} strand, starting {rel:+d} nt relative to the "
+                  "reference CDS")
+            print(f"    starts     {caa[:14]!r}")
+            c = find_chromophore(caa)
+            if c:
+                print(f"    chromophore {c[1]} at residue {c[0]}")
+            if len(cds) != len(ref):
+                print(f"    NOTE       {abs(len(cds) - len(ref))} nt "
+                      f"{'longer' if len(cds) > len(ref) else 'shorter'} than "
+                      "the reference - an insertion or deletion relative to it, "
+                      "which is why a residue may read as substituted")
+            consensus, cds_offset = cds, rel
+        else:
+            cds_offset = 0
+    else:
+        cds_offset = 0
+
+    if upstream:
+        print(f"\nupstream  ...{upstream[-60:]}")
+    if downstream:
+        print(f"downstream   {downstream[:60]}...")
+
     os.makedirs(os.path.dirname(OUT) or ".", exist_ok=True)
     label = "construct_GFP_recovered"
     with open(OUT, "w") as fh:
-        fh.write(f">{label}\n")
+        fh.write(f">{label} offset={cds_offset:+d} depth={mean_depth:.0f}x\n")
         for i in range(0, len(consensus), 60):
             fh.write(consensus[i:i + 60] + "\n")
-    print(f"\nwrote {OUT}")
+    print(f"\nwrote {OUT}  ({len(consensus)} nt)")
 
     if low:
         print(f"\n{low} position(s) are N. Raise depth by re-running the screen "
