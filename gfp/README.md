@@ -165,6 +165,42 @@ says so when coverage is under 25%.
 
 This is the step that turns "there are 40 hits" into "there is reporter RNA".
 
+## Recovering the construct's own sequence (`03_recover_construct_gfp.py`)
+
+If `MODE=aa` finds reads but `MODE=nt` finds none, the construct carries a
+different codon variant than your reference — and those reads are the
+construct's sequence. This anchors each read to the reference through its
+translation, piles them up and calls a consensus:
+
+```bash
+KEEP_HITS=0 MODE=aa MAX_READS=2000000 ./01_gfp_kmer_screen.sh
+python3 -I 03_recover_construct_gfp.py "$PROJ/ref/gfp.fa" "$PROJ"/gfp_screen/hits_*.txt
+```
+
+`KEEP_HITS=0` keeps every matching read rather than the first 200, which is
+what gives the pileup its depth. Pool all positive samples — they share the
+same construct, so they contribute to one consensus.
+
+The report gives positions called, mean depth, nucleotide and amino-acid
+identity to the reference, the residue differences, whether the chromophore
+survived, and any coverage gaps. Output goes to
+`ref/construct_gfp_recovered.fa`.
+
+Validated against ground truth on synthetic data: with a reference at 67%
+nucleotide identity and 0.2% per-base sequencing error, it recovered 711 of 717
+positions with **zero** errors at called positions. Uncalled positions are the
+extreme termini, where reads need 27 nt inside the ORF to be anchored; more
+depth fills them.
+
+It assumes no indels relative to the reference protein. Each read is placed
+independently and must have its peptide anchors agree, so an indel costs
+individual reads rather than corrupting the consensus — it shows up as a run of
+disagreement in the per-position report.
+
+This sequence is what goes into `recombinant_model.fa` as the reporter record,
+and it is empirically derived from your own libraries rather than from a map
+that may not match what is in the freezer.
+
 ## Interpreting the table
 
 Samples 1–3 and 10–15 never saw the construct. They are the negative controls,

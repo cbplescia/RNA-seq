@@ -16,7 +16,8 @@ cd "$(dirname "$0")" && source ../config.sh
 
 : "${GFP_FA:=$PROJ/ref/gfp.fa}"
 : "${MAX_READS:=4000000}"   # reads screened per mate; 0 = every read
-: "${KEEP_HITS:=200}"       # matching reads saved per sample for inspection
+: "${KEEP_HITS:=200}"       # matching reads saved per sample; 0 = keep all
+                            # (use 0 when feeding 03_recover_construct_gfp.py)
 : "${MODE:=nt}"             # nt = exact nucleotide; aa = translated (see below)
 : "${K:=31}"                # nucleotide k-mer length
 : "${STEP:=10}"             # nucleotide tiling stride
@@ -149,7 +150,7 @@ for s in "${SAMPLES[@]}"; do
     # Keep a bounded sample of the matching reads; drop the file if empty.
     if [[ "$h_all" -eq 0 ]]; then
         rm -f "$hits_file"
-    else
+    elif [[ "$KEEP_HITS" -gt 0 ]]; then
         head -n "$KEEP_HITS" "$hits_file" > "$hits_file.keep" && mv "$hits_file.keep" "$hits_file"
     fi
 done
