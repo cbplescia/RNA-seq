@@ -50,9 +50,18 @@ salmon index \
 # Host entries come from the existing map. Construct features are their own
 # "gene" so they survive gene-level summarisation individually.
 echo "Building tx2gene..."
+# The existing map may or may not carry a header. Guessing wrong silently drops
+# a real transcript from the map, so detect it rather than assume.
+HOST_MAP="$PROJ/tx2gene_mouse_from_fasta.tsv"
+if head -1 "$HOST_MAP" | grep -qiE 'TXNAME|tx_?id|transcript'; then
+    HOST_SKIP=2
+    echo "  host map has a header row"
+else
+    HOST_SKIP=1
+    echo "  host map has no header row - keeping every line"
+fi
 {
-    # existing host map, minus its header
-    tail -n +2 "$PROJ/tx2gene_mouse_from_fasta.tsv"
+    tail -n +"$HOST_SKIP" "$HOST_MAP"
     # construct: feature maps to itself
     grep '^>' "$VIRAL_FA" | cut -d ' ' -f1 | sed 's/^>//' | awk '{print $1"\t"$1}'
 } | awk 'BEGIN{print "TXNAME\tGENEID"} {print}' > "$TX2GENE"
