@@ -79,9 +79,9 @@ volcano <- function(d, direction, s) {
   d <- d |> filter(!is.na(padj), if (up) lfc >= 0 else lfc <= 0) |>
     mutate(y = -log10(pmax(padj, 1e-300)),
            hit = padj < PADJ_CUT & (if (up) lfc > LFC_CUT else lfc < -LFC_CUT))
-  lab <- d |> filter(hit) |> arrange(if (up) desc(lfc) else lfc) |> head(N_LABEL)
   cls <- if (up) s$up else s$down
   d$class <- factor(ifelse(d$hit, cls, "Other"), levels = c("Other", cls))
+  lab <- d |> filter(hit) |> arrange(if (up) desc(lfc) else lfc) |> head(N_LABEL)
   xlab <- paste0("log2 fold-change, ", s$title)
   p <- ggplot(d, aes(lfc, y)) +
     geom_hline(yintercept = -log10(PADJ_CUT), linetype = "dashed", colour = "grey60", linewidth = 0.3) +
