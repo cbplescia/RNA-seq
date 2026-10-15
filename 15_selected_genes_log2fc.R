@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # One PNG: IFNB vs Mock log2 fold-change bar plot for a chosen gene list, ordered
-# alphabetically left to right. Shrunk log2FC +/- lfcSE; stars = padj.
+# in the order given in REQ, left to right. Shrunk log2FC +/- lfcSE; stars = padj.
 # Genes not present in the data (no mouse gene with that symbol, or removed by the
 # expression filter in 04) keep their place on the axis, marked "not in data", so
 # the requested list is visibly complete.
@@ -11,23 +11,17 @@ suppressPackageStartupMessages({ library(readr); library(dplyr); library(ggplot2
 # lookup = mouse symbol searched for; label = how it is shown on the axis
 REQ <- tibble::tribble(
   ~lookup,   ~label,
+  "Akt3",    "Akt3",
+  "Odc1",    "Odc1",
+  "Flt1",    "Flt1",
   "Pfkfb3",  "Pfkfb3",
   "Map3k5",  "Map3k5",
   "Gbp2",    "Gbp2",
   "Dcp1a",   "Dcp1a",
-  "Btn3a3",  "Btn3a3",
   "Ccdc92",  "Ccdc92",
   "Ifi6",    "Ifi6",
-  "Ccnd3",   "Ccnd3",
-  "Micb",    "Micb",
-  "Slc16a1", "Slc16a1",
-  "Cd9",     "Cd9",
-  "Irf7",    "Irf7",
-  "Irf1",    "Irf1",
-  "Ifih1",   "Ifih1 (MDA5)",
-  "Odc1",    "Odc1",
-  "Akt3",    "Akt3",
-  "Flt1",    "Flt1")
+  "Btn3a3",  "Btn3a3")
+# Order on the x-axis is the order above (left to right). Edit this list to change it.
 
 LFC_CUT <- 1; PADJ_CUT <- 0.05
 INK <- "#1F2933"
@@ -56,8 +50,7 @@ d <- REQ |> mutate(key = toupper(lookup)) |> left_join(de, by = "key") |>
                                TRUE ~ "Not significant"),
          stars = case_when(!found ~ "", is.na(padj) ~ "", padj < 0.001 ~ "***",
                            padj < 0.01 ~ "**", padj < 0.05 ~ "*", TRUE ~ "ns")) |>
-  arrange(toupper(label))
-d$label <- factor(d$label, levels = d$label)             # alphabetical, left to right
+d$label <- factor(d$label, levels = REQ$label)           # keep the order given in REQ
 d$direction <- factor(d$direction, levels = names(COL))
 
 miss <- d$label[!d$found]
@@ -93,7 +86,7 @@ p <- ggplot(d, aes(label, log2FoldChange)) +
         plot.title = element_text(colour = INK, face = "bold"),
         plot.subtitle = element_text(colour = "grey35", size = 9),
         legend.position = "bottom")
-ggsave(file.path(FIG, "selected_genes_log2FC_IFNB_vs_Mock.png"), p, width = 9, height = 5.5, dpi = 300)
+ggsave(file.path(FIG, "selected_genes_log2FC_IFNB_vs_Mock_ordered.png"), p, width = 9, height = 5.5, dpi = 300)
 write_csv(d |> select(label, gene_id, log2FoldChange, lfcSE, padj, direction, found),
-          file.path(FIG, "selected_genes_log2FC_IFNB_vs_Mock.csv"))
-message("Saved: ", file.path(FIG, "selected_genes_log2FC_IFNB_vs_Mock.png"))
+          file.path(FIG, "selected_genes_log2FC_IFNB_vs_Mock_ordered.csv"))
+message("Saved: ", file.path(FIG, "selected_genes_log2FC_IFNB_vs_Mock_ordered.png"))
