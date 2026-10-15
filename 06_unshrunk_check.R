@@ -17,7 +17,11 @@ OUT <- file.path(PROJ, "requant_v2_outputs")
 dds <- readRDS(file.path(OUT, "dds_v2_decoyAware_hostNormalised.rds"))
 
 message("\n--- size factors by group (should be similar across groups) ---")
-sf <- data.frame(group = dds$group, sizeFactor = sizeFactors(dds))
+# tximport objects store per-gene normalisation factors, not size factors;
+# collapse to one number per sample (geometric mean across genes).
+sfv <- if (!is.null(sizeFactors(dds))) sizeFactors(dds) else
+  exp(colMeans(log(normalizationFactors(dds))))
+sf <- data.frame(group = dds$group, sizeFactor = sfv)
 print(as.data.frame(sf |> group_by(group) |>
   summarise(n = n(), mean_sf = mean(sizeFactor), min_sf = min(sizeFactor),
             max_sf = max(sizeFactor))), row.names = FALSE)
