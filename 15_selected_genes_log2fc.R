@@ -23,6 +23,7 @@ REQ <- tibble::tribble(
   "Btn3a3",  "Btn3a3")
 # Order on the x-axis is the order above (left to right). Edit this list to change it.
 
+DROP_MISSING <- TRUE   # TRUE: leave genes that are not in the data off the plot; FALSE: keep a "not in data" slot
 LFC_CUT <- 1; PADJ_CUT <- 0.05
 INK <- "#1F2933"
 COL <- c(Up = "#C53030", Down = "#2B6CB0", `Not significant` = "#B8B8B8")
@@ -50,11 +51,13 @@ d <- REQ |> mutate(key = toupper(lookup)) |> left_join(de, by = "key") |>
                                TRUE ~ "Not significant"),
          stars = case_when(!found ~ "", is.na(padj) ~ "", padj < 0.001 ~ "***",
                            padj < 0.01 ~ "**", padj < 0.05 ~ "*", TRUE ~ "ns"))
-d$label <- factor(d$label, levels = REQ$label)           # keep the order given in REQ
+miss <- d$label[!d$found]
+if (length(miss)) message("Not in the data: ", paste(miss, collapse = ", "),
+                          if (DROP_MISSING) "  (left off the plot)" else "  (shown as 'not in data')")
+if (DROP_MISSING) d <- d |> filter(found)
+d$label <- factor(d$label, levels = unique(d$label))      # keep the order given in REQ
 d$direction <- factor(d$direction, levels = names(COL))
 
-miss <- d$label[!d$found]
-if (length(miss)) message("Not in the data (shown as 'not in data'): ", paste(miss, collapse = ", "))
 
 df <- d |> filter(found) |> mutate(
   top = ifelse(log2FoldChange >= 0, log2FoldChange + coalesce(lfcSE, 0), log2FoldChange - coalesce(lfcSE, 0)))
