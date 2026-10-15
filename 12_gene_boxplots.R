@@ -11,10 +11,8 @@ suppressPackageStartupMessages({
 
 # Mouse symbols. Human-style names with no mouse gene of that name (BTN3A3, IFI6, MICB
 # are the likely ones) are reported as not found, with similarly named genes listed.
-GENES <- c("Odc1", "Akt3", "Flt1",
-           "Pfkfb3", "Map3k5", "Gbp2", "Dcp1a", "Btn3a3", "Ccdc92", "Ifi6", "Ccnd3",
-           "Micb", "Slc16a1", "Cd9", "Irf7", "Irf1", "Ifih1")   # Ifih1 = MDA5
-NCOL <- 4
+GENES <- c("Akt3", "Odc1", "Flt1", "Pfkfb3", "Map3k5", "Gbp2", "Dcp1a", "Ccdc92", "Ifi6", "Btn3a3")
+NCOL <- 5      # panels are drawn left to right, row by row, in the order of GENES above
 
 PROJ <- Sys.getenv("PROJ", unset = file.path(
   Sys.getenv("HOME"),
@@ -82,6 +80,6 @@ p <- ggplot(long, aes(treatment, vst, fill = treatment, colour = treatment)) +
 n <- length(unique(long$gene_id))
 w <- 2.5 * min(n, NCOL) + 0.8
 h <- 3.3 * ceiling(n / NCOL) + 1.2
-ggsave(file.path(FIG, "selected_genes_vst_boxplot_Mock_vs_IFNB.png"), p, width = w, height = h, dpi = 300)
-ggsave(file.path(FIG, "selected_genes_vst_boxplot_Mock_vs_IFNB.pdf"), p, width = w, height = h)
+ggsave(file.path(FIG, "selected_genes_vst_boxplot_Mock_vs_IFNB_ordered.png"), p, width = w, height = h, dpi = 300)
+ggsave(file.path(FIG, "selected_genes_vst_boxplot_Mock_vs_IFNB_ordered.pdf"), p, width = w, height = h)
 message("Plotted: ", paste(unique(long$gene_name), collapse = ", "), "\nSaved in: ", FIG)
