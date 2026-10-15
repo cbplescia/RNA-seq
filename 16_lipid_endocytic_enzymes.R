@@ -11,9 +11,14 @@
 #   vesicle      : Cellular Component annotation to endocytic vesicle (GO:0030139),
 #                  endosome (GO:0005768; includes early, late and recycling endosome),
 #                  phagocytic vesicle (GO:0045335) or multivesicular body (GO:0005771)
-#   lysosome     : GO:0005764 - the destination of endocytic vesicles. Flagged in its
-#                  own column; genes that are ONLY lysosomal are left out unless
-#                  INCLUDE_LYSOSOME <- TRUE
+#   lysosome     : GO:0005764 - the terminal compartment of the endocytic pathway.
+#                  Included by default (INCLUDE_LYSOSOME <- TRUE); the lysosome_only
+#                  column marks genes with no earlier endosome/vesicle annotation, so
+#                  you can drop them again, or set INCLUDE_LYSOSOME <- FALSE.
+#   EXTRA_GENES  : genes to consider even if GO does not call them lipid-metabolism
+#                  genes (e.g. NAGLU, a lysosomal heparan-sulfate enzyme). They still
+#                  have to pass the enzyme + endocytic/lysosome checks; the
+#                  in_lipid_go_list column says which genes came in this way.
 #   location     : "membrane" / "lumen" from specific GO terms (listed below);
 #                  "membrane and lumen" if both; "not specified" if the gene is
 #                  annotated to the compartment but not to a membrane/lumen term
@@ -32,7 +37,8 @@ for (pkg in c("org.Mm.eg.db", "AnnotationDbi"))
   if (!requireNamespace(pkg, quietly = TRUE))
     stop("Package '", pkg, "' is needed:  BiocManager::install('org.Mm.eg.db')")
 
-INCLUDE_LYSOSOME <- FALSE
+INCLUDE_LYSOSOME <- TRUE
+EXTRA_GENES      <- c("Naglu")   # symbols; add others here
 EXCLUDE_IEA      <- FALSE
 LFC_CUT <- 1; PADJ_CUT <- 0.05
 INK <- "#1F2933"
@@ -48,6 +54,15 @@ FIG <- file.path(OUT, "figures_lipid_pathways")
 dir.create(FIG, showWarnings = FALSE)
 
 lip <- read_csv(file.path(OUT, "DE_v2_IFNB_vs_Mock_protein_coding_lipid_metabolism.csv"), show_col_types = FALSE)
+lip$in_lipid_go_list <- TRUE
+if (length(EXTRA_GENES)) {
+  pc <- read_csv(file.path(OUT, "DE_v2_IFNB_vs_Mock_protein_coding.csv"), show_col_types = FALSE)
+  add <- pc |> filter(toupper(gene_name) %in% toupper(EXTRA_GENES), !gene_id %in% lip$gene_id)
+  nf <- setdiff(toupper(EXTRA_GENES), toupper(c(lip$gene_name, add$gene_name)))
+  if (length(nf)) message("EXTRA_GENES not found among protein-coding genes in the data: ", paste(nf, collapse = ", "))
+  if (nrow(add)) { add$in_lipid_go_list <- FALSE; lip <- bind_rows(lip, add)
+                   message("Added from EXTRA_GENES: ", paste(add$gene_name, collapse = ", ")) }
+}
 lip$.key <- sub("\\.[0-9]+$", "", lip$gene_id)
 
 go <- suppressMessages(AnnotationDbi::select(
@@ -76,6 +91,7 @@ lip$in_lumen    <- lip$.key %in% has("CC", LUMEN)
 
 vesicle_cols <- c("endocytic_vesicle", "endosome", "multivesicular_body", "phagocytic_vesicle")
 lip$vesicle <- Reduce(`|`, lapply(vesicle_cols, function(n) lip[[n]]))
+lip$lysosome_only <- lip$lysosome & !lip$vesicle
 lip$in_scope <- lip$vesicle | (INCLUDE_LYSOSOME & lip$lysosome)
 
 lip$location <- case_when(lip$in_membrane & lip$in_lumen ~ "membrane and lumen",
