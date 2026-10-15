@@ -49,7 +49,7 @@ d <- REQ |> mutate(key = toupper(lookup)) |> left_join(de, by = "key") |>
                                !is.na(padj) & padj < PADJ_CUT & log2FoldChange < -LFC_CUT ~ "Down",
                                TRUE ~ "Not significant"),
          stars = case_when(!found ~ "", is.na(padj) ~ "", padj < 0.001 ~ "***",
-                           padj < 0.01 ~ "**", padj < 0.05 ~ "*", TRUE ~ "ns")) |>
+                           padj < 0.01 ~ "**", padj < 0.05 ~ "*", TRUE ~ "ns"))
 d$label <- factor(d$label, levels = REQ$label)           # keep the order given in REQ
 d$direction <- factor(d$direction, levels = names(COL))
 
