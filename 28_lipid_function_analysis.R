@@ -1,7 +1,8 @@
 #!/usr/bin/env Rscript
 # What do the up- and downregulated lipid genes (script 27) do?
 #
-# For each input table (all lipid genes; endocytic-vesicle lipid enzymes) this writes,
+# For each input table (all lipid genes; endocytic-vesicle lipid enzymes; all responding
+# enzymes from 29_enzyme_genes.R) this writes,
 # into requant_v2_outputs/lipid_function_analysis/:
 #   <tag>_gene_annotations.csv   one row per gene: full name, EC numbers (reactions),
 #                                KEGG pathways, GO biological process / molecular
@@ -54,7 +55,14 @@ inputs <- list(
        universe = "DE_v2_IFNB_vs_Mock_protein_coding_lipid_metabolism.csv"),
   list(tag = "endocytic_enzymes",
        file = "DE_v2_IFNB_vs_Mock_lipid_endocytic_enzymes_log2FC_gt0.7_padj.csv",
-       universe = "DE_v2_IFNB_vs_Mock_lipid_enzymes_endocytic_vesicle.csv"))
+       universe = "DE_v2_IFNB_vs_Mock_lipid_enzymes_endocytic_vesicle.csv"),
+  list(tag = "all_enzymes",    # made by 29_enzyme_genes.R
+       file = "DE_v2_IFNB_vs_Mock_enzymes_up_down.csv",
+       universe = "DE_v2_IFNB_vs_Mock_protein_coding_enzymes.csv"))
+# Optional: name one or more tags on the command line to run only those,
+#   e.g.  Rscript 28_lipid_function_analysis.R all_enzymes
+only <- commandArgs(trailingOnly = TRUE)
+if (length(only)) inputs <- Filter(function(j) j$tag %in% only, inputs)
 
 compartments <- c(ER = "GO:0005783", Golgi = "GO:0005794", mitochondrion = "GO:0005739",
                   peroxisome = "GO:0005777", lysosome = "GO:0005764", endosome = "GO:0005768",
