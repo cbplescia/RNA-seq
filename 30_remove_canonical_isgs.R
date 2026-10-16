@@ -15,6 +15,7 @@
 # Input : DE_v2_IFNB_vs_Mock_protein_coding.csv   (shrunk log2FC; from 07 + 08)
 # Output: DE_v2_IFNB_vs_Mock_protein_coding_without_canonical_type_I_ISGs.csv   (what you asked for)
 #         DE_v2_IFNB_vs_Mock_protein_coding_canonical_type_I_ISGs_removed.csv   (the removed genes + source)
+#         DE_v2_IFNB_vs_Mock_non_canonical_up_down.csv   (significant up/down genes among the remaining; for 28)
 # Needs the msigdbr package:  conda install -c conda-forge r-msigdbr   (or install.packages("msigdbr"))
 
 suppressPackageStartupMessages({ library(readr); library(dplyr); library(tidyr) })
@@ -71,11 +72,18 @@ remaining <- d[!is_isg, ] |> select(-.key, -.sym, -canonical_ISG_source) |> arra
 write_csv(remaining, file.path(OUT, "DE_v2_IFNB_vs_Mock_protein_coding_without_canonical_type_I_ISGs.csv"))
 write_csv(removed,   file.path(OUT, "DE_v2_IFNB_vs_Mock_protein_coding_canonical_type_I_ISGs_removed.csv"))
 
+# responders among the non-canonical genes, for 28_lipid_function_analysis.R non_canonical_isgs
+resp <- remaining |> filter(!is.na(padj), padj < PADJ_CUT, abs(log2FoldChange) > LFC_CUT) |>
+  mutate(direction = ifelse(log2FoldChange > 0, "up", "down")) |>
+  relocate(direction, .after = padj)
+write_csv(resp, file.path(OUT, "DE_v2_IFNB_vs_Mock_non_canonical_up_down.csv"))
+
 up <- function(x) sum(!is.na(x$padj) & x$padj < PADJ_CUT & x$log2FoldChange >  LFC_CUT)
 dn <- function(x) sum(!is.na(x$padj) & x$padj < PADJ_CUT & x$log2FoldChange < -LFC_CUT)
 message(sprintf("\nRemoved as canonical type I ISGs: %d genes (%d of them significantly up, %d down)", nrow(removed), up(removed), dn(removed)))
 message(sprintf("Remaining: %d genes (significant: %d up, %d down at padj<%g & |log2FC|>%g)",
                 nrow(remaining), up(remaining), dn(remaining), PADJ_CUT, LFC_CUT))
 message("Top 10 remaining upregulated: ", paste(head(remaining$gene_name[!is.na(remaining$padj) & remaining$padj < PADJ_CUT], 10), collapse = ", "))
+message("\nNext:  Rscript 28_lipid_function_analysis.R non_canonical_isgs")
 message("\nWrote:\n  ", file.path(OUT, "DE_v2_IFNB_vs_Mock_protein_coding_without_canonical_type_I_ISGs.csv"),
         "\n  ", file.path(OUT, "DE_v2_IFNB_vs_Mock_protein_coding_canonical_type_I_ISGs_removed.csv"))
