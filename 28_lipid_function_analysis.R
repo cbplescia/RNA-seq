@@ -135,6 +135,48 @@ for (job in inputs) {
   for (dir in c("up", "down"))
     writeLines(ann$gene_name[ann$direction == dir], file.path(RES, paste0(tag, "_genes_", dir, ".txt")))
 
+  # ---- figures that do not depend on statistical power --------------------------------------
+  dir_cols <- c(up = "#C53030", down = "#2B6CB0")
+  theme_f <- function() theme_bw(base_size = 11) +
+    theme(panel.grid.minor = element_blank(), panel.border = element_rect(colour = "grey70"), legend.position = "bottom")
+  loc_long <- ann |> select(gene_name, direction, all_of(names(compartments))) |>
+    pivot_longer(all_of(names(compartments)), names_to = "compartment", values_to = "present") |> filter(present)
+  if (nrow(loc_long)) {
+    cnt <- loc_long |> count(direction, compartment)
+    pl <- ggplot(cnt, aes(reorder(compartment, n, FUN = sum), n, fill = direction)) +
+      geom_col(position = position_dodge2(preserve = "single"), width = 0.7) + coord_flip() +
+      scale_fill_manual(values = dir_cols, name = NULL) +
+      labs(title = paste(tag, "- where the responding lipid genes are annotated to act"),
+           subtitle = "number of genes annotated (GO cellular component) to each compartment; a gene can be in several",
+           x = NULL, y = "genes") + theme_f()
+    ggsave(file.path(RES, paste0(tag, "_localization_counts.png")), pl, width = 7, height = 5, dpi = 300)
+    if (nrow(ann) <= 60) {
+      tl <- loc_long |> mutate(compartment = factor(compartment, levels = names(compartments)),
+                               gene_name = factor(gene_name, levels = rev(ann$gene_name)))
+      pt <- ggplot(tl, aes(compartment, gene_name, fill = direction)) + geom_tile(colour = "white") +
+        scale_y_discrete(drop = FALSE) + scale_x_discrete(drop = FALSE) +
+        scale_fill_manual(values = dir_cols, name = NULL) +
+        labs(title = paste(tag, "- compartment annotations per gene"), x = NULL, y = NULL) + theme_f() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1), axis.text.y = element_text(face = "italic"))
+      ggsave(file.path(RES, paste0(tag, "_localization_by_gene.png")), pt, width = 7, height = 0.22 * nrow(ann) + 2.5, dpi = 300)
+    }
+  }
+  if (nrow(kegg_map)) {
+    kc <- ann |> select(gene_name, direction, KEGG_pathways) |> filter(!is.na(KEGG_pathways), KEGG_pathways != "") |>
+      tidyr::separate_rows(KEGG_pathways, sep = "; ") |> count(KEGG_pathways, direction)
+    if (nrow(kc)) {
+      top <- kc |> group_by(KEGG_pathways) |> summarise(tot = sum(n), .groups = "drop") |> slice_max(tot, n = 15, with_ties = FALSE)
+      pk <- ggplot(kc |> filter(KEGG_pathways %in% top$KEGG_pathways),
+                   aes(reorder(KEGG_pathways, n, FUN = sum), n, fill = direction)) +
+        geom_col(position = position_dodge2(preserve = "single"), width = 0.7) + coord_flip() +
+        scale_fill_manual(values = dir_cols, name = NULL) +
+        labs(title = paste(tag, "- KEGG pathways containing the responding genes"),
+             subtitle = "number of up / down genes in each pathway (top 15); counts, not enrichment",
+             x = NULL, y = "genes") + theme_f()
+      ggsave(file.path(RES, paste0(tag, "_KEGG_pathway_membership.png")), pk, width = 9, height = 6, dpi = 300)
+    }
+  }
+
   # ---- enrichment: Up vs Down ----------------------------------------------------------
   gl <- list(Up = ent(d$.key[d$direction == "up"]), Down = ent(d$.key[d$direction == "down"]))
   gl <- gl[lengths(gl) > 0]
@@ -150,13 +192,20 @@ for (job in inputs) {
       write_csv(res, file.path(RES, paste0(tag, "_enrichment_", label, ".csv")))
       sig <- res |> filter(p.adjust < ENRICH_PADJ)
       message(sprintf("%-9s %d terms tested, %d with p.adjust < %g", label, nrow(res), nrow(sig), ENRICH_PADJ))
-      if (nrow(sig)) {
-        for (g in unique(sig$Cluster)) message("   ", g, ": ", paste(head(sig$Description[sig$Cluster == g], 5), collapse = " | "))
-        cc@compareClusterResult <- sig
-        p <- tryCatch(enrichplot::dotplot(cc, showCategory = 10, label_format = 45) +
-                        labs(title = paste(tag, "-", label)), error = function(e) NULL)
-        if (!is.null(p)) ggsave(file.path(RES, paste0(tag, "_dotplot_", label, ".png")), p, width = 8, height = 6, dpi = 300)
-      }
+      if (nrow(sig)) for (g in unique(sig$Cluster))
+        message("   ", g, ": ", paste(head(sig$Description[sig$Cluster == g], 5), collapse = " | "))
+      # Always draw a figure. If nothing reaches ENRICH_PADJ, show the 10 lowest raw
+      # p-values per group and say so on the plot (exploratory, not significant).
+      use <- if (nrow(sig)) sig else
+        res |> group_by(Cluster) |> slice_min(pvalue, n = 10, with_ties = FALSE) |> ungroup() |> as.data.frame()
+      cc@compareClusterResult <- use
+      sub <- if (nrow(sig)) sprintf("terms with p.adjust < %g (background = parent lipid gene list)", ENRICH_PADJ) else
+        sprintf("NO term reached p.adjust < %g - showing the 10 lowest raw p-values per group (exploratory only)", ENRICH_PADJ)
+      p <- tryCatch(enrichplot::dotplot(cc, showCategory = 10, label_format = 45) +
+                      labs(title = paste(tag, "-", label), subtitle = sub) +
+                      theme(plot.subtitle = element_text(size = 8)),
+                    error = function(e) { message(label, ": dotplot failed (", conditionMessage(e), ")"); NULL })
+      if (!is.null(p)) ggsave(file.path(RES, paste0(tag, "_dotplot_", label, ".png")), p, width = 8.5, height = 6.5, dpi = 300)
     }
     for (ont in c("BP", "MF", "CC"))
       enrich(paste0("GO_", ont), "enrichGO", OrgDb = OrgDb, keyType = "ENTREZID", ont = ont, minGSSize = 3, maxGSSize = 500)
