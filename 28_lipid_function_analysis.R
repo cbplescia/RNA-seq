@@ -22,7 +22,7 @@
 #
 # Needs (Bioconductor): clusterProfiler, enrichplot, org.Mm.eg.db, GO.db
 # Optional: ReactomePA (Reactome), STRINGdb (interactions)
-# Internet is needed for KEGG, Reactome-free parts work offline, and STRING.
+# Internet is needed for KEGG and STRING; the GO parts work offline.
 
 suppressPackageStartupMessages({ library(readr); library(dplyr); library(tidyr); library(ggplot2) })
 for (pkg in c("clusterProfiler", "enrichplot", "org.Mm.eg.db", "GO.db", "AnnotationDbi"))
