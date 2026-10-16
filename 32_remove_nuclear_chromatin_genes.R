@@ -1,6 +1,8 @@
 #!/usr/bin/env Rscript
 # Further refine the IFNB vs Mock list (interferon / antiviral genes already removed by
-# 30_remove_canonical_isgs.R) by dropping genes that are BOTH
+# 30_remove_canonical_isgs.R) by dropping two kinds of gene.
+#
+# RULE 1 - nuclear chromatin/DNA genes: genes that are BOTH
 #   (a) fully nuclear   : annotated to the nucleus (GO:0005634) and to NO non-nuclear compartment
 #                         (cytoplasm GO:0005737, membrane GO:0016020, extracellular region GO:0005576;
 #                         these include all their child terms, e.g. mitochondrion, ER, plasma membrane), and
@@ -11,14 +13,22 @@
 #                         or catalytic activity acting on DNA (polymerases, helicases, methyltransferases,
 #                         nucleases, ...).
 # A nuclear gene that also binds RNA, phosphorylates proteins, is cytoplasmic in any annotation, or has no
-# molecular-function annotation at all is KEPT. All GO evidence (including inferred, IEA) is used, so any
+# molecular-function annotation at all is KEPT.
+#
+# RULE 2 - growth factors without ion or enzyme activity: genes annotated to GO molecular function
+#   "growth factor activity" (GO:0008083, including child terms) that have NO annotation to catalytic
+#   activity (GO:0003824, any enzyme), ion binding (GO:0043167; includes calcium / zinc / metal ion
+#   binding) or ion channel / ion transporter activity (GO:0005216, GO:0015075). Growth factors with any
+#   of those are KEPT.
+#
+# All GO evidence (including inferred, IEA) is used, so any
 # cytoplasmic or non-DNA annotation keeps a gene in the list - the removal is deliberately conservative.
 #
 # Input : DE_v2_IFNB_vs_Mock_protein_coding_without_ISG_and_antiviral_genes.csv   (from 30)
-# Output: DE_v2_IFNB_vs_Mock_protein_coding_without_ISG_antiviral_nuclear_genes.csv  (the refined list)
-#         DE_v2_IFNB_vs_Mock_protein_coding_nuclear_chromatin_genes_removed.csv      (with the reasons)
+# Output: DE_v2_IFNB_vs_Mock_protein_coding_refined.csv           (the refined list)
+#         DE_v2_IFNB_vs_Mock_protein_coding_refined_removed.csv   (what was removed, with the reason)
 #         DE_v2_IFNB_vs_Mock_refined_up_down.csv    (significant up/down; for 28: non_ifn_nuclear_filtered)
-# Edit CORE_MF / GENERIC_MF below to change what counts.
+# Edit CORE_MF / GENERIC_MF / GF_TERM / ION_ENZYME_MF below to change what counts.
 
 suppressPackageStartupMessages({ library(readr); library(dplyr); library(tidyr) })
 for (pkg in c("org.Mm.eg.db", "GO.db", "AnnotationDbi"))
@@ -46,6 +56,12 @@ GENERIC_MF <- c("GO:0005488", "GO:0005515", "GO:0042802", "GO:0042803", "GO:0046
                 "GO:0003676", "GO:0097159", "GO:1901363",                                           # nucleic acid / compound binding
                 "GO:0005524", "GO:0000166", "GO:1901265", "GO:0036094", "GO:0043168")                # ATP / nucleotide binding
 
+GF_TERM <- "GO:0008083"      # growth factor activity
+ION_ENZYME_MF <- c("GO:0003824",  # catalytic activity (any enzyme)
+                   "GO:0043167",  # ion binding (incl. calcium, zinc, other metal ions)
+                   "GO:0005216",  # monoatomic ion channel activity
+                   "GO:0015075")  # monoatomic ion transmembrane transporter activity
+
 PROJ <- Sys.getenv("PROJ", unset = file.path(
   Sys.getenv("HOME"),
   "Documents/aviti_rnaseq/2025/aviti",
@@ -58,8 +74,10 @@ d$.key <- sub("\\.[0-9]+$", "", d$gene_id)
 message("Genes in the starting list: ", nrow(d))
 
 # ---- (a) fully nuclear ------------------------------------------------------------------------------
-cc <- suppressMessages(AnnotationDbi::select(OrgDb, keys = unique(d$.key), keytype = "ENSEMBL",
-                                             columns = c("GOALL", "ONTOLOGYALL"))) |> filter(ONTOLOGYALL == "CC")
+goall <- suppressMessages(AnnotationDbi::select(OrgDb, keys = unique(d$.key), keytype = "ENSEMBL",
+                                                columns = c("GOALL", "ONTOLOGYALL")))
+cc <- goall |> filter(ONTOLOGYALL == "CC")
+mfall <- goall |> filter(ONTOLOGYALL == "MF")
 in_nuc  <- unique(cc$ENSEMBL[cc$GOALL == NUCLEUS])
 in_non  <- unique(cc$ENSEMBL[cc$GOALL %in% NONNUCLEAR])
 nuc_only <- setdiff(in_nuc, in_non)
@@ -77,15 +95,27 @@ names_tab <- suppressMessages(AnnotationDbi::select(GO.db::GO.db, keys = unique(
 mf_terms <- mf |> left_join(names_tab, by = c("GO" = "GOID")) |> group_by(ENSEMBL) |>
   summarise(direct_MF_terms = paste(sort(unique(TERM)), collapse = "; "), .groups = "drop")
 
-d <- d |> mutate(fully_nuclear = .key %in% nuc_only, chromatin_DNA_only_function = .key %in% chrom_only) |>
-  left_join(mf_terms, by = c(".key" = "ENSEMBL"))
-drop <- d$fully_nuclear & d$chromatin_DNA_only_function
+# ---- rule 2: growth factors with no ion / enzyme activity -------------------------------------------------------
+gf_genes   <- unique(mfall$ENSEMBL[mfall$GOALL == GF_TERM])
+ion_enz    <- unique(mfall$ENSEMBL[mfall$GOALL %in% ION_ENZYME_MF])
+gf_no_ionenz <- setdiff(gf_genes, ion_enz)
 
-removed   <- d[drop, ]  |> select(-.key) |> relocate(fully_nuclear, chromatin_DNA_only_function, direct_MF_terms, .after = gene_name) |>
-  arrange(desc(log2FoldChange))
-remaining <- d[!drop, ] |> select(-.key, -fully_nuclear, -chromatin_DNA_only_function, -direct_MF_terms) |> arrange(desc(log2FoldChange))
-write_csv(remaining, file.path(OUT, "DE_v2_IFNB_vs_Mock_protein_coding_without_ISG_antiviral_nuclear_genes.csv"))
-write_csv(removed,   file.path(OUT, "DE_v2_IFNB_vs_Mock_protein_coding_nuclear_chromatin_genes_removed.csv"))
+d <- d |> mutate(fully_nuclear = .key %in% nuc_only, chromatin_DNA_only_function = .key %in% chrom_only,
+                 growth_factor = .key %in% gf_genes, growth_factor_no_ion_enzyme = .key %in% gf_no_ionenz) |>
+  left_join(mf_terms, by = c(".key" = "ENSEMBL"))
+rule1 <- d$fully_nuclear & d$chromatin_DNA_only_function
+rule2 <- d$growth_factor_no_ion_enzyme
+drop <- rule1 | rule2
+d$removed_reason <- trimws(paste(ifelse(rule1, "fully nuclear, chromatin/DNA-only function", ""),
+                                 ifelse(rule2, "growth factor without ion/enzyme activity", ""), sep = " | "), whitespace = "[ |]")
+
+removed   <- d[drop, ]  |> select(-.key) |>
+  relocate(removed_reason, fully_nuclear, chromatin_DNA_only_function, growth_factor, growth_factor_no_ion_enzyme,
+           direct_MF_terms, .after = gene_name) |> arrange(desc(log2FoldChange))
+remaining <- d[!drop, ] |> select(-.key, -fully_nuclear, -chromatin_DNA_only_function, -growth_factor,
+                                  -growth_factor_no_ion_enzyme, -direct_MF_terms, -removed_reason) |> arrange(desc(log2FoldChange))
+write_csv(remaining, file.path(OUT, "DE_v2_IFNB_vs_Mock_protein_coding_refined.csv"))
+write_csv(removed,   file.path(OUT, "DE_v2_IFNB_vs_Mock_protein_coding_refined_removed.csv"))
 resp <- remaining |> filter(!is.na(padj), padj < PADJ_CUT, abs(log2FoldChange) > LFC_CUT) |>
   mutate(direction = ifelse(log2FoldChange > 0, "up", "down")) |> relocate(direction, .after = padj)
 write_csv(resp, file.path(OUT, "DE_v2_IFNB_vs_Mock_refined_up_down.csv"))
@@ -94,7 +124,11 @@ up <- function(x) sum(!is.na(x$padj) & x$padj < PADJ_CUT & x$log2FoldChange >  L
 dn <- function(x) sum(!is.na(x$padj) & x$padj < PADJ_CUT & x$log2FoldChange < -LFC_CUT)
 message(sprintf("\nFully nuclear (nucleus, no non-nuclear annotation): %d genes", sum(d$fully_nuclear)))
 message(sprintf("Chromatin/DNA-only molecular function:               %d genes", sum(d$chromatin_DNA_only_function)))
-message(sprintf("BOTH (removed):                                       %d genes (%d significantly up, %d down)", nrow(removed), up(removed), dn(removed)))
+message(sprintf("  rule 1 - both (removed):                            %d genes", sum(rule1)))
+message(sprintf("Growth factors (GO growth factor activity):          %d genes, of which %d have no ion/enzyme annotation",
+                sum(d$growth_factor), sum(rule2)))
+message(sprintf("  rule 2 - removed:                                   %d genes", sum(rule2)))
+message(sprintf("TOTAL removed: %d genes (%d significantly up, %d down)", nrow(removed), up(removed), dn(removed)))
 message(sprintf("Remaining: %d genes; significant: %d up, %d down (padj<%g & |log2FC|>%g)",
                 nrow(remaining), up(remaining), dn(remaining), PADJ_CUT, LFC_CUT))
 sig_rm <- removed |> filter(!is.na(padj), padj < PADJ_CUT, abs(log2FoldChange) > LFC_CUT)
