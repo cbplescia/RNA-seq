@@ -87,3 +87,65 @@ message("Top 10 remaining upregulated: ", paste(head(remaining$gene_name[!is.na(
 message("\nNext:  Rscript 28_lipid_function_analysis.R non_canonical_isgs")
 message("\nWrote:\n  ", file.path(OUT, "DE_v2_IFNB_vs_Mock_protein_coding_without_canonical_type_I_ISGs.csv"),
         "\n  ", file.path(OUT, "DE_v2_IFNB_vs_Mock_protein_coding_canonical_type_I_ISGs_removed.csv"))
+
+# =====================================================================================================
+# Second, stricter removal: ALSO drop every gene annotated in GO (Biological Process, including all
+# child terms) to an interferon-response or antiviral term, so the remaining list is free of the
+# "response to IFN / defense against virus" genes and any pathway analysis on it shows what changes
+# outside those programmes. Edit GO_REMOVE_TERMS to change what counts. Produces a second set of files:
+#   DE_v2_IFNB_vs_Mock_protein_coding_without_ISG_and_antiviral_genes.csv
+#   DE_v2_IFNB_vs_Mock_protein_coding_ISG_and_antiviral_genes_removed.csv   (with removed_by)
+#   DE_v2_IFNB_vs_Mock_non_ISG_antiviral_up_down.csv                         (for 28: non_ifn_antiviral)
+# =====================================================================================================
+BROAD_IMMUNE <- FALSE    # TRUE also removes everything under "innate immune response" and "defense response"
+GO_REMOVE_TERMS <- c(
+  "GO:0034340",  # response to type I interferon
+  "GO:0071357",  # cellular response to type I interferon
+  "GO:0060337",  # type I interferon-mediated signaling pathway
+  "GO:0035455",  # response to interferon-alpha
+  "GO:0035457",  # cellular response to interferon-alpha
+  "GO:0035456",  # response to interferon-beta
+  "GO:0035458",  # cellular response to interferon-beta
+  "GO:0032606",  # type I interferon production
+  "GO:0009615",  # response to virus
+  "GO:0051607",  # defense response to virus
+  "GO:0140374",  # antiviral innate immune response
+  "GO:0050688",  # regulation of defense response to virus
+  "GO:0050792",  # regulation of viral process
+  "GO:0045069")  # regulation of viral genome replication
+if (BROAD_IMMUNE) GO_REMOVE_TERMS <- c(GO_REMOVE_TERMS, "GO:0045087", "GO:0006952")  # innate immune response, defense response
+
+for (pkg in c("org.Mm.eg.db", "GO.db", "AnnotationDbi"))
+  if (!requireNamespace(pkg, quietly = TRUE)) stop("Install ", pkg, " (BiocManager::install) for the GO-based removal")
+select <- dplyr::select; first <- dplyr::first; rename <- dplyr::rename
+slice <- dplyr::slice; filter <- dplyr::filter; desc <- dplyr::desc; count <- dplyr::count
+
+go_hit <- suppressMessages(AnnotationDbi::select(org.Mm.eg.db::org.Mm.eg.db, keys = unique(d$.key), keytype = "ENSEMBL",
+                                                 columns = c("GOALL", "ONTOLOGYALL"))) |>
+  filter(ONTOLOGYALL == "BP", GOALL %in% GO_REMOVE_TERMS) |> distinct(ENSEMBL, GOALL)
+nm <- suppressMessages(AnnotationDbi::select(GO.db::GO.db, keys = GO_REMOVE_TERMS, keytype = "GOID", columns = "TERM"))
+go_hit <- go_hit |> left_join(nm, by = c("GOALL" = "GOID"))
+by_gene <- go_hit |> group_by(ENSEMBL) |> summarise(GO_terms = paste(sort(unique(TERM)), collapse = "; "), .groups = "drop")
+d2 <- d |> left_join(by_gene, by = c(".key" = "ENSEMBL"))
+d2$GO_terms[is.na(d2$GO_terms)] <- ""
+is_go <- d2$GO_terms != ""
+d2$removed_by <- trimws(paste(ifelse(d2$canonical_ISG_source != "", paste0("curated set: ", d2$canonical_ISG_source), ""),
+                              ifelse(is_go, paste0("GO: ", d2$GO_terms), ""), sep = " | "), whitespace = "[ |]")
+drop2 <- is_isg | is_go
+
+removed2   <- d2[drop2, ]  |> select(-.key, -.sym, -canonical_ISG_source, -GO_terms) |> relocate(removed_by, .after = gene_name) |> arrange(desc(log2FoldChange))
+remaining2 <- d2[!drop2, ] |> select(-.key, -.sym, -canonical_ISG_source, -GO_terms, -removed_by) |> arrange(desc(log2FoldChange))
+write_csv(remaining2, file.path(OUT, "DE_v2_IFNB_vs_Mock_protein_coding_without_ISG_and_antiviral_genes.csv"))
+write_csv(removed2,   file.path(OUT, "DE_v2_IFNB_vs_Mock_protein_coding_ISG_and_antiviral_genes_removed.csv"))
+resp2 <- remaining2 |> filter(!is.na(padj), padj < PADJ_CUT, abs(log2FoldChange) > LFC_CUT) |>
+  mutate(direction = ifelse(log2FoldChange > 0, "up", "down")) |> relocate(direction, .after = padj)
+write_csv(resp2, file.path(OUT, "DE_v2_IFNB_vs_Mock_non_ISG_antiviral_up_down.csv"))
+
+message(sprintf("\n--- Stricter removal (curated ISG sets + GO interferon/antiviral terms%s) ---", if (BROAD_IMMUNE) " + innate immune/defense" else ""))
+message(sprintf("Removed: %d genes in total (%d only via the GO terms; %d significantly up, %d down among all removed)",
+                nrow(removed2), sum(is_go & !is_isg), up(removed2), dn(removed2)))
+message(sprintf("Remaining: %d genes; significant: %d up, %d down (padj<%g & |log2FC|>%g)",
+                nrow(remaining2), up(remaining2), dn(remaining2), PADJ_CUT, LFC_CUT))
+message("Genes removed per GO term:")
+print(as.data.frame(go_hit |> count(TERM, sort = TRUE)), row.names = FALSE)
+message("\nNext:  Rscript 28_lipid_function_analysis.R non_ifn_antiviral")

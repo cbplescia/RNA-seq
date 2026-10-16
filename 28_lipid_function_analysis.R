@@ -61,7 +61,10 @@ inputs <- list(
        universe = "DE_v2_IFNB_vs_Mock_protein_coding_enzymes.csv"),
   list(tag = "non_canonical_isgs",   # made by 30_remove_canonical_isgs.R
        file = "DE_v2_IFNB_vs_Mock_non_canonical_up_down.csv",
-       universe = "DE_v2_IFNB_vs_Mock_protein_coding_without_canonical_type_I_ISGs.csv"))
+       universe = "DE_v2_IFNB_vs_Mock_protein_coding_without_canonical_type_I_ISGs.csv"),
+  list(tag = "non_ifn_antiviral",   # made by 30_remove_canonical_isgs.R (stricter, GO-based removal)
+       file = "DE_v2_IFNB_vs_Mock_non_ISG_antiviral_up_down.csv",
+       universe = "DE_v2_IFNB_vs_Mock_protein_coding_without_ISG_and_antiviral_genes.csv"))
 # Optional: name one or more tags on the command line to run only those,
 #   e.g.  Rscript 28_lipid_function_analysis.R all_enzymes
 only <- commandArgs(trailingOnly = TRUE)
