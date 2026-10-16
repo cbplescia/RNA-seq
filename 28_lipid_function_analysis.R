@@ -30,6 +30,11 @@ for (pkg in c("clusterProfiler", "enrichplot", "org.Mm.eg.db", "GO.db", "Annotat
     stop("Package '", pkg, "' is needed:  BiocManager::install('", pkg, "')")
 OrgDb <- org.Mm.eg.db::org.Mm.eg.db
 
+# Bioconductor packages mask several dplyr verbs (S4Vectors::first, AnnotationDbi::select,
+# ...). Pin the dplyr versions so the script behaves the same however packages load.
+select <- dplyr::select; first <- dplyr::first; rename <- dplyr::rename
+slice <- dplyr::slice; filter <- dplyr::filter; desc <- dplyr::desc; count <- dplyr::count
+
 ENRICH_PADJ <- 0.05     # terms shown in the dotplots (CSVs keep everything)
 EXCLUDE_IEA <- FALSE    # TRUE: GO terms with experimental/curated evidence only
 STRING_SCORE <- 400     # STRING confidence cutoff (400 medium, 700 high)
