@@ -2,8 +2,8 @@
 # Bar graphs of log2FC for selected genes (edit GENES). Shrunk log2FC from the DESeq2 results (DE_v2_*_annotated.csv), error bars = +/- 1 lfcSE,
 # stars = padj of that comparison (* < 0.05, ** < 0.01, *** < 0.001).
 #   gene_bars_Gm43302_Gpsm1_Dnmt3b_IFNB_vs_Mock   one bar per gene, IFNB vs Mock (red = up, blue = down)
-#   gene_bars_Gm43302_Gpsm1_Dnmt3b_grouped        per gene, three bars: IFNB vs Mock | IFNB+EBOV vs Mock | EBOV vs Mock
-# In the grouped graph a bracket joins the IFNB and IFNB+EBOV bars of each gene and gives the test of IFNB+EBOV vs IFNB: the difference between the
+#   gene_bars_Gm43302_IFNB_EBOV_sets             one gene (GENE2): IFNB vs Mock | IFNB+EBOV vs Mock | EBOV vs Mock
+# In the second graph a bracket joins the IFNB and IFNB+EBOV bars and gives the test of IFNB+EBOV vs IFNB: the difference between the
 # two log2FCs (DESeq2 Wald test, contrast IFNB_EBOV vs IFNB_Mock, BH padj across all genes), i.e. whether EBOV changes the IFNB response of that gene.
 # Writes PNG + PDF and gene_bars_Gm43302_Gpsm1_Dnmt3b_log2fc.csv to requant_v2_outputs/figures_gene_bars/
 # Usage: Rscript 63_gene_bars_log2fc.R   (PROJ from 'source setup_session.sh')
@@ -59,20 +59,25 @@ p1 <- ggplot(d1, aes(gene, lfc, fill = dir)) + geom_col(width = 0.65) +
   labs(title = "IFNB vs Mock: log2 fold-change of selected genes", subtitle = "shrunk log2FC +/- 1 SE; stars = padj (ns = not significant)", x = NULL, y = "log2 fold-change (IFNB vs Mock)") + base_theme
 save2(p1, "gene_bars_Gm43302_Gpsm1_Dnmt3b_IFNB_vs_Mock", 5, 4.5)
 
-# 2. grouped: IFNB, IFNB+EBOV, EBOV vs Mock
-dg <- position_dodge(width = 0.8)
-pad2 <- 0.05 * diff(range(c(D$lfc - D$se, D$lfc + D$se, 0)))
-bk <- D |> filter(comparison %in% COMP[c("IFNB_vs_Mock", "IFNB_EBOV_vs_Mock")]) |> group_by(gene) |> summarise(top = max(ypos) + 3.5 * pad2, .groups = "drop") |>
-  left_join(BR |> select(gene, blab), by = "gene") |> mutate(x = as.numeric(gene), tick = 1.2 * pad2)
-p2 <- ggplot(D, aes(gene, lfc, fill = comparison)) + geom_col(position = dg, width = 0.72) +
-  geom_errorbar(aes(ymin = lfc - se, ymax = lfc + se), position = dg, width = 0.2, colour = INK, linewidth = 0.35) +
-  geom_text(aes(y = ypos + ifelse(lfc >= 0, pad2, -pad2), label = lab), position = dg, colour = INK, size = 3.2, vjust = 0.5) +
-  geom_segment(data = bk, aes(x = x - 0.8 / 3, xend = x, y = top, yend = top), inherit.aes = FALSE, colour = INK, linewidth = 0.4) +
-  geom_segment(data = bk, aes(x = x - 0.8 / 3, xend = x - 0.8 / 3, y = top, yend = top - tick), inherit.aes = FALSE, colour = INK, linewidth = 0.4) +
-  geom_segment(data = bk, aes(x = x, xend = x, y = top, yend = top - tick), inherit.aes = FALSE, colour = INK, linewidth = 0.4) +
-  geom_text(data = bk, aes(x = x - 0.8 / 6, y = top + pad2 * 0.6, label = blab), inherit.aes = FALSE, colour = INK, size = 3.6, vjust = 0) +
-  geom_hline(yintercept = 0, colour = INK, linewidth = 0.4) + scale_fill_manual(values = CCOL, name = NULL) +
-  scale_y_continuous(expand = expansion(mult = 0.1)) +
-  labs(title = "Selected genes: IFNB, IFNB+EBOV and EBOV vs Mock", subtitle = "shrunk log2FC +/- 1 SE; stars above bars = padj against Mock; bracket = IFNB+EBOV vs IFNB (ns = not significant)", x = NULL, y = "log2 fold-change vs Mock") + base_theme
-save2(p2, "gene_bars_Gm43302_Gpsm1_Dnmt3b_grouped", 6.5, 4.8)
+# 2. one gene (GENE2): IFNB, IFNB+EBOV and EBOV vs Mock; stars + padj above each bar (vs Mock), bracket = IFNB+EBOV vs IFNB
+GENE2 <- "Gm43302"
+d2 <- D |> filter(gene == GENE2)
+if (!nrow(d2)) stop(GENE2, " not found in the DE tables")
+fp <- function(p) ifelse(is.na(p), "", sprintf("%s\npadj = %s", stars(p), formatC(p, digits = 2, format = "g")))
+d2 <- d2 |> mutate(x = as.numeric(comparison), blab = fp(padj))
+pad2 <- 0.05 * diff(range(c(d2$lfc - d2$se, d2$lfc + d2$se, 0)))
+top <- max(d2$ypos[d2$x %in% 1:2]) + 7 * pad2
+br <- BR |> filter(gene == GENE2)
+p2 <- ggplot(d2, aes(x, lfc, fill = comparison)) + geom_col(width = 0.65) +
+  geom_errorbar(aes(ymin = lfc - se, ymax = lfc + se), width = 0.15, colour = INK, linewidth = 0.4) +
+  geom_text(aes(y = ypos + ifelse(lfc >= 0, pad2, -pad2), label = blab), colour = INK, size = 3.4, lineheight = 0.9, vjust = ifelse(d2$lfc >= 0, 0, 1)) +
+  annotate("segment", x = 1, xend = 2, y = top, yend = top, colour = INK, linewidth = 0.4) +
+  annotate("segment", x = c(1, 2), xend = c(1, 2), y = top, yend = top - 1.5 * pad2, colour = INK, linewidth = 0.4) +
+  annotate("text", x = 1.5, y = top + 0.6 * pad2, label = sprintf("IFNB+EBOV vs IFNB\n%s", fp(br$diff_padj)), colour = INK, size = 3.4, lineheight = 0.9, vjust = 0) +
+  geom_hline(yintercept = 0, colour = INK, linewidth = 0.4) + scale_fill_manual(values = CCOL, guide = "none") +
+  scale_x_continuous(breaks = d2$x, labels = as.character(d2$comparison), expand = expansion(add = 0.6)) + scale_y_continuous(expand = expansion(mult = c(0.1, 0.2))) +
+  labs(title = sprintf("%s: IFNB, IFNB+EBOV and EBOV vs Mock", GENE2),
+       subtitle = "shrunk log2FC +/- 1 SE; text above each bar = padj vs Mock; bracket = test of IFNB+EBOV vs IFNB (does EBOV change the IFNB response?)", x = NULL, y = "log2 fold-change vs Mock") + base_theme +
+  theme(plot.subtitle = element_text(colour = "grey35", size = 8))
+save2(p2, sprintf("gene_bars_%s_IFNB_EBOV_sets", GENE2), 5.5, 5.2)
 message("Saved to: ", OUT)
