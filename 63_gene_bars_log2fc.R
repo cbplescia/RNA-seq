@@ -1,15 +1,15 @@
 #!/usr/bin/env Rscript
 # Bar graphs of log2FC for selected genes (edit GENES). Shrunk log2FC from the DESeq2 results (DE_v2_*_annotated.csv), error bars = +/- 1 lfcSE,
 # stars = padj of that comparison (* < 0.05, ** < 0.01, *** < 0.001).
-#   gene_bars_IFNB_vs_Mock            one bar per gene, IFNB vs Mock (red = up, blue = down)
-#   gene_bars_grouped_IFNB_EBOV       per gene, three bars: IFNB vs Mock | IFNB+EBOV vs Mock | EBOV vs Mock
-# Writes PNG + PDF and gene_bars_log2fc.csv to requant_v2_outputs/figures_gene_bars/
+#   gene_bars_Gm43302_Gpsm1_Dnmt3b_IFNB_vs_Mock   one bar per gene, IFNB vs Mock (red = up, blue = down)
+#   gene_bars_Gm43302_Gpsm1_Dnmt3b_grouped        per gene, three bars: IFNB vs Mock | IFNB+EBOV vs Mock | EBOV vs Mock
+# Writes PNG + PDF and gene_bars_Gm43302_Gpsm1_Dnmt3b_log2fc.csv to requant_v2_outputs/figures_gene_bars/
 # Usage: Rscript 63_gene_bars_log2fc.R   (PROJ from 'source setup_session.sh')
 
 suppressPackageStartupMessages({ library(readr); library(dplyr); library(tidyr); library(ggplot2) })
 select <- dplyr::select; filter <- dplyr::filter
 
-GENES <- c("Gm43302", "Gpsm1", "Dnmt3b", "Gm43638", "Gm37034")      # matched ignoring case (GPSM1 -> Gpsm1)
+GENES <- c("Gm43302", "Gpsm1", "Dnmt3b")      # matched ignoring case (GPSM1 -> Gpsm1)
 INK <- "#1F2933"; RED <- "#C53030"; BLUE <- "#2B6CB0"
 COMP <- c(IFNB_vs_Mock = "IFNB vs Mock", IFNB_EBOV_vs_Mock = "IFNB+EBOV vs Mock", EBOV_vs_Mock = "EBOV vs Mock")
 CCOL <- c(`IFNB vs Mock` = "#2B6CB0", `IFNB+EBOV vs Mock` = "#9BD08E", `EBOV vs Mock` = "#1B7837")
@@ -36,7 +36,7 @@ if (length(missing)) message("Not found in the DE tables (check the symbol): ", 
 disp <- setNames(GENES, tolower(GENES))
 D <- D |> mutate(gene = factor(disp[key], levels = GENES), comparison = factor(comparison, levels = COMP)) |> filter(!is.na(gene)) |>
   mutate(lab = stars(padj), ypos = ifelse(lfc >= 0, lfc + se, lfc - se))
-write_csv(D |> arrange(gene, comparison) |> select(gene, gene_id, comparison, log2FC = lfc, lfcSE = se, padj), file.path(OUT, "gene_bars_log2fc.csv"))
+write_csv(D |> arrange(gene, comparison) |> select(gene, gene_id, comparison, log2FC = lfc, lfcSE = se, padj), file.path(OUT, "gene_bars_Gm43302_Gpsm1_Dnmt3b_log2fc.csv"))
 print(as.data.frame(D |> arrange(gene, comparison) |> transmute(gene, comparison, log2FC = round(lfc, 2), padj = signif(padj, 3))), row.names = FALSE)
 
 # 1. IFNB vs Mock
@@ -48,7 +48,7 @@ p1 <- ggplot(d1, aes(gene, lfc, fill = dir)) + geom_col(width = 0.65) +
   geom_hline(yintercept = 0, colour = INK, linewidth = 0.4) + scale_fill_manual(values = c(up = RED, down = BLUE), guide = "none") +
   scale_y_continuous(expand = expansion(mult = 0.12)) +
   labs(title = "IFNB vs Mock: log2 fold-change of selected genes", subtitle = "shrunk log2FC +/- 1 SE; stars = padj (ns = not significant)", x = NULL, y = "log2 fold-change (IFNB vs Mock)") + base_theme
-save2(p1, "gene_bars_IFNB_vs_Mock", 6.5, 4.5)
+save2(p1, "gene_bars_Gm43302_Gpsm1_Dnmt3b_IFNB_vs_Mock", 5, 4.5)
 
 # 2. grouped: IFNB, IFNB+EBOV, EBOV vs Mock
 dg <- position_dodge(width = 0.8)
@@ -59,5 +59,5 @@ p2 <- ggplot(D, aes(gene, lfc, fill = comparison)) + geom_col(position = dg, wid
   geom_hline(yintercept = 0, colour = INK, linewidth = 0.4) + scale_fill_manual(values = CCOL, name = NULL) +
   scale_y_continuous(expand = expansion(mult = 0.1)) +
   labs(title = "Selected genes: IFNB, IFNB+EBOV and EBOV vs Mock", subtitle = "shrunk log2FC +/- 1 SE; stars = padj of each comparison against Mock (ns = not significant)", x = NULL, y = "log2 fold-change vs Mock") + base_theme
-save2(p2, "gene_bars_grouped_IFNB_EBOV", 8.5, 5)
+save2(p2, "gene_bars_Gm43302_Gpsm1_Dnmt3b_grouped", 6.5, 4.8)
 message("Saved to: ", OUT)
