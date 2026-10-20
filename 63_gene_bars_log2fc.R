@@ -3,10 +3,12 @@
 # stars = padj of that comparison (* < 0.05, ** < 0.01, *** < 0.001).
 #   gene_bars_Gm43302_Gpsm1_Dnmt3b_IFNB_vs_Mock   one bar per gene, IFNB vs Mock (red = up, blue = down)
 #   gene_bars_Gm43302_Gpsm1_Dnmt3b_grouped        per gene, three bars: IFNB vs Mock | IFNB+EBOV vs Mock | EBOV vs Mock
+# In the grouped graph a bracket joins the IFNB and IFNB+EBOV bars of each gene and gives the test of IFNB+EBOV vs IFNB: the difference between the
+# two log2FCs (DESeq2 Wald test, contrast IFNB_EBOV vs IFNB_Mock, BH padj across all genes), i.e. whether EBOV changes the IFNB response of that gene.
 # Writes PNG + PDF and gene_bars_Gm43302_Gpsm1_Dnmt3b_log2fc.csv to requant_v2_outputs/figures_gene_bars/
 # Usage: Rscript 63_gene_bars_log2fc.R   (PROJ from 'source setup_session.sh')
 
-suppressPackageStartupMessages({ library(readr); library(dplyr); library(tidyr); library(ggplot2) })
+suppressPackageStartupMessages({ library(readr); library(dplyr); library(tidyr); library(ggplot2); library(DESeq2) })
 select <- dplyr::select; filter <- dplyr::filter
 
 GENES <- c("Gm43302", "Gpsm1", "Dnmt3b")      # matched ignoring case (GPSM1 -> Gpsm1)
@@ -39,6 +41,13 @@ D <- D |> mutate(gene = factor(disp[key], levels = GENES), comparison = factor(c
 write_csv(D |> arrange(gene, comparison) |> select(gene, gene_id, comparison, log2FC = lfc, lfcSE = se, padj), file.path(OUT, "gene_bars_Gm43302_Gpsm1_Dnmt3b_log2fc.csv"))
 print(as.data.frame(D |> arrange(gene, comparison) |> transmute(gene, comparison, log2FC = round(lfc, 2), padj = signif(padj, 3))), row.names = FALSE)
 
+# test of IFNB+EBOV vs IFNB (difference between the IFNB vs Mock and IFNB+EBOV vs Mock effects)
+dds <- readRDS(file.path(RNA, "dds_v2_decoyAware_hostNormalised.rds"))
+rb <- as.data.frame(results(dds, contrast = c("group", "IFNB_EBOV", "IFNB_Mock"))) |> tibble::rownames_to_column("gene_id")
+BR <- D |> distinct(gene, gene_id) |> left_join(rb |> select(gene_id, diff_lfc = log2FoldChange, diff_padj = padj), by = "gene_id") |> mutate(blab = stars(diff_padj))
+write_csv(BR |> select(gene, gene_id, `IFNB+EBOV vs IFNB log2FC (unshrunk)` = diff_lfc, `padj` = diff_padj), file.path(OUT, "gene_bars_Gm43302_Gpsm1_Dnmt3b_IFNB_EBOV_vs_IFNB.csv"))
+message("\nIFNB+EBOV vs IFNB (does EBOV change the IFNB response?):"); print(as.data.frame(BR |> transmute(gene, log2FC = round(diff_lfc, 2), padj = signif(diff_padj, 3), stars = blab)), row.names = FALSE)
+
 # 1. IFNB vs Mock
 d1 <- D |> filter(comparison == COMP[["IFNB_vs_Mock"]]) |> mutate(dir = ifelse(lfc >= 0, "up", "down"))
 pad <- 0.08 * diff(range(c(d1$lfc - d1$se, d1$lfc + d1$se, 0)))
@@ -53,11 +62,17 @@ save2(p1, "gene_bars_Gm43302_Gpsm1_Dnmt3b_IFNB_vs_Mock", 5, 4.5)
 # 2. grouped: IFNB, IFNB+EBOV, EBOV vs Mock
 dg <- position_dodge(width = 0.8)
 pad2 <- 0.05 * diff(range(c(D$lfc - D$se, D$lfc + D$se, 0)))
+bk <- D |> filter(comparison %in% COMP[c("IFNB_vs_Mock", "IFNB_EBOV_vs_Mock")]) |> group_by(gene) |> summarise(top = max(ypos) + 3.5 * pad2, .groups = "drop") |>
+  left_join(BR |> select(gene, blab), by = "gene") |> mutate(x = as.numeric(gene), tick = 1.2 * pad2)
 p2 <- ggplot(D, aes(gene, lfc, fill = comparison)) + geom_col(position = dg, width = 0.72) +
   geom_errorbar(aes(ymin = lfc - se, ymax = lfc + se), position = dg, width = 0.2, colour = INK, linewidth = 0.35) +
   geom_text(aes(y = ypos + ifelse(lfc >= 0, pad2, -pad2), label = lab), position = dg, colour = INK, size = 3.2, vjust = 0.5) +
+  geom_segment(data = bk, aes(x = x - 0.8 / 3, xend = x, y = top, yend = top), inherit.aes = FALSE, colour = INK, linewidth = 0.4) +
+  geom_segment(data = bk, aes(x = x - 0.8 / 3, xend = x - 0.8 / 3, y = top, yend = top - tick), inherit.aes = FALSE, colour = INK, linewidth = 0.4) +
+  geom_segment(data = bk, aes(x = x, xend = x, y = top, yend = top - tick), inherit.aes = FALSE, colour = INK, linewidth = 0.4) +
+  geom_text(data = bk, aes(x = x - 0.8 / 6, y = top + pad2 * 0.6, label = blab), inherit.aes = FALSE, colour = INK, size = 3.6, vjust = 0) +
   geom_hline(yintercept = 0, colour = INK, linewidth = 0.4) + scale_fill_manual(values = CCOL, name = NULL) +
   scale_y_continuous(expand = expansion(mult = 0.1)) +
-  labs(title = "Selected genes: IFNB, IFNB+EBOV and EBOV vs Mock", subtitle = "shrunk log2FC +/- 1 SE; stars = padj of each comparison against Mock (ns = not significant)", x = NULL, y = "log2 fold-change vs Mock") + base_theme
+  labs(title = "Selected genes: IFNB, IFNB+EBOV and EBOV vs Mock", subtitle = "shrunk log2FC +/- 1 SE; stars above bars = padj against Mock; bracket = IFNB+EBOV vs IFNB (ns = not significant)", x = NULL, y = "log2 fold-change vs Mock") + base_theme
 save2(p2, "gene_bars_Gm43302_Gpsm1_Dnmt3b_grouped", 6.5, 4.8)
 message("Saved to: ", OUT)
