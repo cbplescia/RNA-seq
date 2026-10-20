@@ -9,7 +9,7 @@
 #                                         Each panel counts how many ISGs / IDGs are still significantly changed (bottom right:
 #                                         pulled back toward Mock). Needs figures_mock_ifnb_ebov/transcriptome_blocks.csv from
 #                                         51_mock_ifnb_ebov_analysis.R; without it only figure 1 is made.
-# Labels: the 15 ISGs (largest log2FC) and 5 IDGs (most negative log2FC) from IFNB vs Mock; set N_LAB_ISG / N_LAB_IDG to change. Needs ggrepel.
+# Labels: the 10 ISGs (largest log2FC) and 3 IDGs (most negative log2FC) from IFNB vs Mock; set N_LAB_ISG / N_LAB_IDG to change. Needs ggrepel.
 # Figure sizes (inches) are set just below: the heights were reduced from 7 -> 5.5 (single) and 10 -> 7.5 (four-panel).
 # Writes figure 1 to requant_v2_outputs/figures_protein_coding/ and figure 2 + counts to requant_v2_outputs/figures_mock_ifnb_ebov/ (PNG + PDF).
 # Usage: Rscript 58_volcano_ifnb_and_four_panel.R   (PROJ from 'source setup_session.sh')
@@ -18,7 +18,7 @@ suppressPackageStartupMessages({ library(readr); library(dplyr); library(tidyr);
 select <- dplyr::select; filter <- dplyr::filter
 
 LFC_CUT <- 1; PADJ_CUT <- 0.05
-N_LAB_ISG <- 15; N_LAB_IDG <- 5      # genes labelled: the ISGs / IDGs with the largest |log2FC| in IFNB vs Mock
+N_LAB_ISG <- 10; N_LAB_IDG <- 3      # genes labelled: the ISGs / IDGs with the largest |log2FC| in IFNB vs Mock
 SINGLE_W <- 8;  SINGLE_H <- 5.5      # figure 1
 FOUR_W   <- 12; FOUR_H   <- 7.5      # figure 2
 INK <- "#1F2933"; RED <- "#D7191C"; BLUE <- "#2B6CB0"
