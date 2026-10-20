@@ -2,7 +2,8 @@
 # PCA of six conditions, chosen by sample number:
 #   Mock 1-3 | EBOV 4-6 | MARV 7-9 | IFNB 10-12 | IFNB+EBOV 16-18 | IFNB+MARV 22-24
 # Dots are colour-coded by group and labelled with the REPLICATE number (1, 2, 3) inside the dot, not the sample ID.
-# IFNB-treated groups are squares, the others circles; a light shaded triangle joins the three replicates of each group.
+# All dots are solid circles. Colour families: grey = Mock, blue = IFNB, green = EBOV (dark) / IFNB+EBOV (light),
+# purple = MARV (dark) / IFNB+MARV (light). A light shaded triangle joins the three replicates of each group.
 # PCA = the 500 most variable protein-coding genes (VST, vsd_v2.rds) across these 18 samples, centred, via prcomp.
 # A check table is printed: it compares the groups you chose with the group each sample has in sample_info.csv.
 #
@@ -17,7 +18,7 @@ SETS <- list(Mock = c("1", "2", "3"), EBOV = c("4", "5", "6"), MARV = c("7", "8"
              IFNB = c("10", "11", "12"), `IFNB+EBOV` = c("16", "17", "18"), `IFNB+MARV` = c("22", "23", "24"))
 EXPECTED <- c(Mock = "Mock_Mock", EBOV = "Mock_EBOV", MARV = "Mock_MARV", IFNB = "IFNB_Mock",
               `IFNB+EBOV` = "IFNB_EBOV", `IFNB+MARV` = "IFNB_MARV")
-COLS <- c(Mock = "#7F7F7F", EBOV = "#E69F00", MARV = "#009E73", IFNB = "#0072B2", `IFNB+EBOV` = "#D55E00", `IFNB+MARV` = "#CC79A7")
+COLS <- c(Mock = "#7F7F7F", IFNB = "#2B6CB0", EBOV = "#1B7837", `IFNB+EBOV` = "#9BD08E", MARV = "#762A83", `IFNB+MARV` = "#C9A6DB")
 INK <- "#1F2933"
 
 PROJ <- Sys.getenv("PROJ", unset = file.path(
@@ -54,7 +55,8 @@ pct <- 100 * p$sdev^2 / sum(p$sdev^2)
 message(sprintf("\n%d samples, %d genes. Variance explained: PC1 %.1f%%, PC2 %.1f%%, PC3 %.1f%%, PC4 %.1f%%", nrow(sel), nrow(x), pct[1], pct[2], pct[3], pct[4]))
 
 co <- as.data.frame(p$x[, 1:5]) |> tibble::rownames_to_column("sample") |> left_join(sel |> select(sample, treatment, replicate), by = "sample") |>
-  mutate(treatment = factor(treatment, levels = names(SETS)), ifn = factor(ifelse(grepl("IFNB", treatment), "IFNB-treated", "no IFN"), levels = c("no IFN", "IFNB-treated")))
+  mutate(treatment = factor(treatment, levels = c("Mock", "IFNB", "EBOV", "IFNB+EBOV", "MARV", "IFNB+MARV")),
+         txt = ifelse(treatment %in% c("IFNB+EBOV", "IFNB+MARV"), INK, "white"))   # dark number on the light dots
 write_csv(co, file.path(OUT, "PCA_six_groups_coordinates.csv"))
 ld <- as.data.frame(p$rotation[, 1:3]) |> tibble::rownames_to_column("gene_id") |> mutate(gene_name = if (is.null(sym)) gene_id else unname(sym[gene_id]))
 write_csv(bind_rows(lapply(c("PC1", "PC2", "PC3"), function(pcn) ld |> slice_max(abs(.data[[pcn]]), n = 20) |> mutate(driver_of = pcn))),
@@ -66,12 +68,11 @@ plot_pc <- function(px, py) {
   ggplot(co, aes(.data[[px]], .data[[py]])) +
     geom_hline(yintercept = 0, colour = "grey85", linewidth = 0.3) + geom_vline(xintercept = 0, colour = "grey85", linewidth = 0.3) +
     geom_polygon(data = hull, aes(fill = treatment, group = treatment), alpha = 0.13, colour = NA) +
-    geom_point(aes(fill = treatment, shape = ifn), size = 8, colour = "white", stroke = 0.9) +
-    geom_text(aes(label = replicate), colour = "white", size = 3.6, fontface = "bold") +
+    geom_point(aes(fill = treatment), shape = 21, size = 8, colour = "white", stroke = 0.9) +
+    geom_text(aes(label = replicate, colour = txt), size = 3.6, fontface = "bold") +
+    scale_colour_identity() +
     scale_fill_manual(values = COLS, name = "group") +
-    scale_shape_manual(values = c(`no IFN` = 21, `IFNB-treated` = 22), name = NULL) +
-    guides(fill = guide_legend(override.aes = list(shape = 21, size = 5, alpha = 1), order = 1),
-           shape = guide_legend(override.aes = list(fill = "grey60", size = 5), order = 2)) +
+    guides(fill = guide_legend(override.aes = list(shape = 21, size = 5, alpha = 1))) +
     scale_x_continuous(expand = expansion(mult = 0.12)) + scale_y_continuous(expand = expansion(mult = 0.12)) +
     labs(title = "PCA: Mock, EBOV, MARV, IFNB, IFNB+EBOV and IFNB+MARV",
          subtitle = sprintf("top %d most variable protein-coding genes (VST), 18 samples; number inside each dot = replicate", nrow(x)),
