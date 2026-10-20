@@ -26,7 +26,8 @@ have <- function(p) requireNamespace(p, quietly = TRUE)
 mc <- core[!vapply(core, have, logical(1))]; mo <- opt[!vapply(opt, have, logical(1))]
 cat("  core packages missing:    ", if (length(mc)) paste(mc, collapse = ", ") else "none", "\n")
 cat("  optional packages missing:", if (length(mo)) paste(mo, collapse = ", ") else "none", "\n")
-if (length(mc) || length(mo)) cat("  install with e.g.:  conda install -c conda-forge -c bioconda",
-  paste0(c("r-", "bioconductor-")[1], tolower(c(mc, mo)[1]), " ..."), "\n   (r-<name> for CRAN packages, bioconductor-<name> for Bioconductor ones)\n")
+if (length(mc) || length(mo)) cat("  install with:  conda install -c conda-forge -c bioconda r-<package>             (CRAN packages)\n",
+                                  "                 conda install -c conda-forge -c bioconda bioconductor-<package>   (Bioconductor packages)\n",
+                                  "                 (package names in lower case, e.g. r-ggrepel, bioconductor-deseq2)\n")
 ' 2>/dev/null
 echo; echo "Ready. Scripts read PROJ, so run them from anywhere, e.g.:  Rscript 45_pca_mock_ifnb_ifny.R"
