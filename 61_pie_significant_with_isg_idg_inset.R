@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # The "significantly altered vs not significant" pie for IFNB vs Mock (all tested protein-coding genes) with a zoom-in inset on the
-# significantly altered wedge: the altered genes split into ISGs (red), IDGs (blue) and smaller increases / decreases (|log2FC| <= LFC_CUT).
+# significantly altered wedge: the altered genes split into ISGs (red), IDGs (blue) and genes whose change did not meet the fold-change threshold (|log2FC| <= LFC_CUT).
 # Dashed lines connect the inset to the wedge it magnifies. Same numbers as 60_pie_significant_isg_idg.R.
 # Writes pie_IFNB_significant_with_ISG_IDG_inset.png / .pdf (11 x 7 in) to requant_v2_outputs/figures_protein_coding/
 # Usage: Rscript 61_pie_significant_with_isg_idg_inset.R   (PROJ from 'source setup_session.sh')
@@ -9,7 +9,7 @@ suppressPackageStartupMessages({ library(readr); library(dplyr); library(ggplot2
 select <- dplyr::select; filter <- dplyr::filter
 
 PADJ_CUT <- 0.05; LFC_CUT <- 1
-INK <- "#1F2933"; C_ISG <- "#C53030"; C_IDG <- "#2B6CB0"; C_NS <- "#D9D9D9"; C_SIG <- "#6B7280"; C_UP <- "#F0A8A8"; C_DN <- "#A9C5E6"
+INK <- "#1F2933"; C_ISG <- "#C53030"; C_IDG <- "#2B6CB0"; C_NS <- "#D9D9D9"; C_SIG <- "#6B7280"; C_OTH <- "#B8BEC7"
 PROJ <- Sys.getenv("PROJ", unset = file.path(
   Sys.getenv("HOME"),
   "Documents/aviti_rnaseq/2025/aviti",
@@ -34,8 +34,9 @@ build <- function(df, total, xmax, text_size) {
 p_main <- build(tibble(n = c(nSig, nNS), fill = c(C_SIG, C_NS), txt = c("white", INK), lx = 0.6,
                        lab = c(sprintf("Significantly\naltered\n%d (%.1f%%)", nSig, 100 * nSig / N), sprintf("Not\nsignificant\n%d (%.1f%%)", nNS, 100 * nNS / N))), N, 1, 4.6)
 pct <- function(x) sprintf("%d (%.1f%%)", x, 100 * x / nSig)
-p_in <- build(tibble(n = c(nISG, nIDG, nUp, nDn), fill = c(C_ISG, C_IDG, C_UP, C_DN), txt = c(C_ISG, C_IDG, INK, INK), lx = c(1.3, 1.3, 0.55, 0.55),
-                     lab = c(paste0("ISGs\n", pct(nISG)), paste0("IDGs\n", pct(nIDG)), paste0("Smaller\nincrease\n", pct(nUp)), paste0("Smaller\ndecrease\n", pct(nDn)))), nSig, 1.55, 3.4)
+nOth <- nUp + nDn                                        # significant but |log2FC| <= LFC_CUT
+p_in <- build(tibble(n = c(nISG, nIDG, nOth), fill = c(C_ISG, C_IDG, C_OTH), txt = c(C_ISG, C_IDG, INK), lx = c(1.3, 1.3, 0.55),
+                     lab = c(paste0("ISGs\n", pct(nISG)), paste0("IDGs\n", pct(nIDG)), paste0("Change did not\nmeet FC threshold\n", pct(nOth)))), nSig, 1.55, 3.4)
 
 # layout in inches on an 11 x 7 canvas (a coord_polar pie fills 0.4 of its square panel, which fixes where the wedge edges are)
 W <- 11; H <- 7
