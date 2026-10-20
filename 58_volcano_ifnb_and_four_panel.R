@@ -9,14 +9,16 @@
 #                                         Each panel counts how many ISGs / IDGs are still significantly changed (bottom right:
 #                                         pulled back toward Mock). Needs figures_mock_ifnb_ebov/transcriptome_blocks.csv from
 #                                         51_mock_ifnb_ebov_analysis.R; without it only figure 1 is made.
+# Labels: the 30 ISGs (largest log2FC) and 10 IDGs (most negative log2FC) from IFNB vs Mock; set N_LAB_ISG / N_LAB_IDG to change. Needs ggrepel.
 # Figure sizes (inches) are set just below: the heights were reduced from 7 -> 5.5 (single) and 10 -> 7.5 (four-panel).
 # Writes figure 1 to requant_v2_outputs/figures_protein_coding/ and figure 2 + counts to requant_v2_outputs/figures_mock_ifnb_ebov/ (PNG + PDF).
 # Usage: Rscript 58_volcano_ifnb_and_four_panel.R   (PROJ from 'source setup_session.sh')
 
-suppressPackageStartupMessages({ library(readr); library(dplyr); library(tidyr); library(ggplot2) })
+suppressPackageStartupMessages({ library(readr); library(dplyr); library(tidyr); library(ggplot2); library(ggrepel) })
 select <- dplyr::select; filter <- dplyr::filter
 
 LFC_CUT <- 1; PADJ_CUT <- 0.05
+N_LAB_ISG <- 30; N_LAB_IDG <- 10     # genes labelled: the ISGs / IDGs with the largest |log2FC| in IFNB vs Mock
 SINGLE_W <- 8;  SINGLE_H <- 5.5      # figure 1
 FOUR_W   <- 12; FOUR_H   <- 7.5      # figure 2
 INK <- "#1F2933"; RED <- "#D7191C"; BLUE <- "#2B6CB0"
@@ -51,9 +53,13 @@ message(sprintf("Genes beyond +/-%g log2FC but not significant (kept black): %d"
 write_csv(d |> filter(class != "other") |> arrange(class, desc(abs(log2FoldChange))) |> select(gene_id, gene_name, class, log2FoldChange, padj),
           file.path(OUT1, "volcano_IFNB_vs_Mock_ISGs_IDGs.csv"))
 xr <- max(abs(d$log2FoldChange)) * 1.05
+lab1 <- bind_rows(d |> filter(class == "ISG") |> slice_max(log2FoldChange, n = N_LAB_ISG, with_ties = FALSE),
+                  d |> filter(class == "IDG") |> slice_min(log2FoldChange, n = N_LAB_IDG, with_ties = FALSE)) |> filter(!is.na(gene_name), gene_name != "")
 p1 <- ggplot(d, aes(log2FoldChange, y)) +
   geom_point(data = d |> filter(class == "other"), colour = "black", size = 0.7, alpha = 0.45) +
   geom_point(data = d |> filter(class != "other"), aes(colour = class), size = 1.1, alpha = 0.85) +
+  geom_text_repel(data = lab1, aes(label = gene_name, colour = class), size = 2.8, fontface = "italic", max.overlaps = Inf, min.segment.length = 0,
+                  segment.size = 0.25, segment.colour = "grey60", box.padding = 0.35, point.padding = 0.15, seed = 1) +
   geom_hline(yintercept = -log10(PADJ_CUT), linetype = "dashed", colour = "grey50", linewidth = 0.35) +
   geom_vline(xintercept = c(-LFC_CUT, LFC_CUT), linetype = "dashed", colour = "grey50", linewidth = 0.35) +
   scale_colour_manual(values = c(ISG = RED, IDG = BLUE), guide = "none") +
@@ -93,11 +99,16 @@ if (!file.exists(bf)) {
   write_csv(cnt |> mutate(of = ifelse(class == "ISG", nI, nD)), file.path(OUT2, "volcano_four_panel_counts.csv"))
   print(as.data.frame(cnt |> pivot_wider(names_from = class, values_from = n)), row.names = FALSE)
 
+  labg <- bind_rows(B |> filter(class == "ISG") |> slice_max(lfc_B, n = N_LAB_ISG, with_ties = FALSE),
+                    B |> filter(class == "IDG") |> slice_min(lfc_B, n = N_LAB_IDG, with_ties = FALSE)) |> filter(!is.na(gene_name), gene_name != "") |> pull(gene_id)
+  lab4 <- long |> filter(gene_id %in% labg)     # the same genes are labelled in every panel
   xr4 <- max(abs(long$lfc[long$panel == PANELS[1]])) * 1.05
   ymax <- as.numeric(quantile(long$y, 0.999))
   p2 <- ggplot(long, aes(lfc, y)) +
     geom_point(data = long |> filter(class == "other"), colour = "black", size = 0.5, alpha = 0.35) +
     geom_point(data = long |> filter(class != "other"), aes(colour = class), size = 0.9, alpha = 0.8) +
+    geom_text_repel(data = lab4, aes(label = gene_name, colour = class), size = 2.2, fontface = "italic", max.overlaps = Inf, min.segment.length = 0,
+                    segment.size = 0.2, segment.colour = "grey60", box.padding = 0.25, point.padding = 0.1, seed = 1) +
     geom_hline(yintercept = -log10(PADJ_CUT), linetype = "dashed", colour = "grey50", linewidth = 0.3) +
     geom_vline(xintercept = c(-LFC_CUT, LFC_CUT), linetype = "dashed", colour = "grey50", linewidth = 0.3) +
     geom_text(data = ann, aes(x = xr4 * 0.97, y = Inf, label = txt_isg), inherit.aes = FALSE, colour = RED, hjust = 1, vjust = 1.5, size = 3.1, fontface = "bold") +
