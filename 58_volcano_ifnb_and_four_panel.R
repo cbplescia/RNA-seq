@@ -21,6 +21,10 @@ LFC_CUT <- 1; PADJ_CUT <- 0.05
 N_LAB_ISG <- 10; N_LAB_IDG <- 3      # genes labelled: the ISGs / IDGs with the largest |log2FC| in IFNB vs Mock
 SINGLE_W <- 8;  SINGLE_H <- 5.5      # figure 1
 FOUR_W   <- 12; FOUR_H   <- 7.5      # figure 2
+# manual label nudges (data units: x = log2FC, y = -log10 padj) for labels that land on top of data points; edit or add genes here
+NUDGE <- tibble::tribble(~gene_name, ~nx, ~ny,
+                         "Fndc7",   -1.3, -1.5,
+                         "Gm43302", -0.8,  5.5)
 INK <- "#1F2933"; RED <- "#D7191C"; BLUE <- "#2B6CB0"
 
 PROJ <- Sys.getenv("PROJ", unset = file.path(
@@ -54,11 +58,12 @@ write_csv(d |> filter(class != "other") |> arrange(class, desc(abs(log2FoldChang
           file.path(OUT1, "volcano_IFNB_vs_Mock_ISGs_IDGs.csv"))
 xr <- max(abs(d$log2FoldChange)) * 1.05
 lab1 <- bind_rows(d |> filter(class == "ISG") |> slice_max(log2FoldChange, n = N_LAB_ISG, with_ties = FALSE),
-                  d |> filter(class == "IDG") |> slice_min(log2FoldChange, n = N_LAB_IDG, with_ties = FALSE)) |> filter(!is.na(gene_name), gene_name != "")
+                  d |> filter(class == "IDG") |> slice_min(log2FoldChange, n = N_LAB_IDG, with_ties = FALSE)) |> filter(!is.na(gene_name), gene_name != "") |>
+  left_join(NUDGE, by = "gene_name") |> mutate(nx = coalesce(nx, 0), ny = coalesce(ny, 0))
 p1 <- ggplot(d, aes(log2FoldChange, y)) +
   geom_point(data = d |> filter(class == "other"), colour = "black", size = 0.7, alpha = 0.45) +
   geom_point(data = d |> filter(class != "other"), aes(colour = class), size = 1.1, alpha = 0.85) +
-  geom_text_repel(data = lab1, aes(label = gene_name, colour = class), size = 2.8, fontface = "italic", max.overlaps = Inf, min.segment.length = 0,
+  geom_text_repel(data = lab1, aes(label = gene_name, colour = class), nudge_x = lab1$nx, nudge_y = lab1$ny, size = 2.8, fontface = "italic", max.overlaps = Inf, min.segment.length = 0,
                   segment.size = 0.25, segment.colour = "grey60", box.padding = 0.35, point.padding = 0.15, seed = 1) +
   geom_hline(yintercept = -log10(PADJ_CUT), linetype = "dashed", colour = "grey50", linewidth = 0.35) +
   geom_vline(xintercept = c(-LFC_CUT, LFC_CUT), linetype = "dashed", colour = "grey50", linewidth = 0.35) +
