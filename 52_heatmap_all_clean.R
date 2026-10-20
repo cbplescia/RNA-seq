@@ -13,7 +13,10 @@ suppressPackageStartupMessages({ library(DESeq2); library(readr); library(dplyr)
 if (!requireNamespace("pheatmap", quietly = TRUE)) stop("Install pheatmap (conda install -c conda-forge r-pheatmap)")
 select <- dplyr::select; filter <- dplyr::filter
 
+ORDER <- "blocks"                   # "blocks" = grouped by IFNB response / EBOV effect; "lfc" = one continuous sort by IFNB log2FC
 GAPS <- TRUE; CAP <- NULL           # CAP: fix the colour limit (log2 units); NULL = automatic
+# you can also choose on the command line:  Rscript 52_heatmap_all_clean.R lfc
+if (length(commandArgs(trailingOnly = TRUE))) ORDER <- commandArgs(trailingOnly = TRUE)[1]
 SETS <- list(Mock = c("1", "2", "3"), IFNB = c("10", "11", "12"), `IFNB+EBOV` = c("16", "17", "18"), EBOV = c("4", "5", "6"))
 GCOL <- c(Mock = "#7F7F7F", IFNB = "#2B6CB0", `IFNB+EBOV` = "#9BD08E", EBOV = "#1B7837")
 BLOCKS <- tibble::tribble(~resp, ~eff, ~title,
@@ -37,11 +40,18 @@ if (!all(cols %in% colnames(vm))) stop("Samples missing from the VST object: ", 
 mock_cols <- SETS$Mock
 
 # same ordering as 51: block by block; IFNB-down by most negative first, EBOV-altered by EBOV log2FC, the rest by IFNB log2FC
-ordered <- bind_rows(lapply(seq_len(nrow(BLOCKS)), function(i) {
-  b <- B |> filter(block == BLOCKS$title[i])
-  b[order(if (BLOCKS$resp[i] == "Down") b$lfc_B else if (BLOCKS$resp[i] == "None" && BLOCKS$eff[i] != "Unchanged") -b$lfc_E else -b$lfc_B), ]
-})) |> filter(gene_id %in% rownames(vm))
-blk <- factor(ordered$block, levels = BLOCKS$title)
+if (ORDER == "lfc") {
+  # one continuous list, most IFNB-induced at the top to most IFNB-repressed at the bottom; no blocks, no gaps
+  ordered <- B |> filter(gene_id %in% rownames(vm)) |> arrange(desc(lfc_B))
+  GAPS <- FALSE
+  blk <- factor(rep(BLOCKS$title[1], nrow(ordered)), levels = BLOCKS$title)
+} else {
+  ordered <- bind_rows(lapply(seq_len(nrow(BLOCKS)), function(i) {
+    b <- B |> filter(block == BLOCKS$title[i])
+    b[order(if (BLOCKS$resp[i] == "Down") b$lfc_B else if (BLOCKS$resp[i] == "None" && BLOCKS$eff[i] != "Unchanged") -b$lfc_E else -b$lfc_B), ]
+  })) |> filter(gene_id %in% rownames(vm))
+  blk <- factor(ordered$block, levels = BLOCKS$title)
+}
 message("Genes: ", nrow(ordered)); print(table(blk))
 
 m <- vm[ordered$gene_id, cols, drop = FALSE]
@@ -58,7 +68,7 @@ h <- pheatmap::pheatmap(m, color = colorRampPalette(c("#2C5F9E", "#F7F7F7", "#B2
                         show_rownames = FALSE, show_colnames = TRUE, border_color = NA, fontsize = 9, silent = TRUE,
                         main = sprintf("All protein-coding genes (%d): log2 change vs Mock mean (VST)", nrow(m)))
 for (ext in c("png", "pdf")) {
-  f <- file.path(OUT, paste0("heatmap_all_protein_coding_clean.", ext))
+  f <- file.path(OUT, paste0("heatmap_all_protein_coding_clean", if (ORDER == "lfc") "_sorted_by_IFNB_log2FC" else "", ".", ext))
   if (ext == "png") png(f, width = 7, height = 11, units = "in", res = 300) else pdf(f, width = 7, height = 11)
   grid::grid.newpage(); grid::grid.draw(h$gtable); dev.off()
 }
