@@ -10,6 +10,7 @@ suppressPackageStartupMessages({ library(readr); library(dplyr); library(ggplot2
 select <- dplyr::select; filter <- dplyr::filter
 
 GENES <- c("Zbp1", "Isg15", "Xaf1", "Irf7", "Mx2", "Srms", "Ifi208", "Mx1", "Usp18", "Gm43302", "Cfb")     # matched ignoring case
+# a trailing * matches a whole family:  GENES='Gbp*' ... (all genes whose symbol starts with Gbp)
 # any other gene(s) without editing the file:  GENES=Axl OUT_NAME=Axl_IFNB_vs_IFNB_EBOV Rscript 66_selected_isgs_ifnb_vs_ifnb_ebov.R   (comma-separate several genes)
 if (nzchar(Sys.getenv("GENES"))) GENES <- trimws(strsplit(Sys.getenv("GENES"), ",")[[1]])
 OUT_NAME <- Sys.getenv("OUT_NAME", unset = "selected_ISGs_IFNB_vs_IFNB_EBOV")
@@ -24,8 +25,12 @@ OUT <- file.path(RNA, "figures_gene_bars"); dir.create(OUT, showWarnings = FALSE
 stars <- function(p) ifelse(is.na(p), "", ifelse(p < 0.001, "***", ifelse(p < 0.01, "**", ifelse(p < 0.05, "*", "ns"))))
 
 allg <- read_csv(file.path(RNA, "DE_v2_IFNB_vs_Mock_annotated.csv"), show_col_types = FALSE) |> mutate(key = tolower(gene_name))
+wild <- tolower(sub("\\*$", "", grep("\\*$", GENES, value = TRUE)))                   # "Gbp*" = every gene whose symbol starts with Gbp
+GENES <- GENES[!grepl("\\*$", GENES)]
 want <- tolower(GENES)                                    # gene symbols or Ensembl gene IDs (ENSMUSG...) both work
-ann <- allg |> filter(key %in% want | tolower(gene_id) %in% want | tolower(sub("\\..*$", "", gene_id)) %in% want) |> distinct(gene_id, .keep_all = TRUE)
+is_wild <- if (length(wild)) Reduce(`|`, lapply(wild, function(p) startsWith(allg$key, p))) else rep(FALSE, nrow(allg))
+ann <- allg |> filter(key %in% want | tolower(gene_id) %in% want | tolower(sub("\\..*$", "", gene_id)) %in% want | is_wild) |> distinct(gene_id, .keep_all = TRUE)
+if (length(wild)) message("Wildcard matches: ", paste(ann$gene_name[startsWith(tolower(ann$gene_name), wild[1])], collapse = ", "))
 miss <- GENES[!vapply(want, function(w) any(allg$key == w | tolower(allg$gene_id) == w | tolower(sub("\\..*$", "", allg$gene_id)) == w), logical(1))]
 if (length(miss)) {
   message("Not found in the DE table: ", paste(miss, collapse = ", "))
