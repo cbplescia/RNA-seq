@@ -4,6 +4,7 @@
 #   heatmap_top100_ISGs_expression.png / .pdf        colour = VST expression (absolute level; white = low, dark red = high; scale from the 2nd to 98th percentile)
 #   heatmap_top100_ISGs_expression_rowZ.png / .pdf   same values scaled per gene (row z-score: blue = below that gene's mean, red = above), which makes each gene's
 #                                                     pattern across the 9 samples comparable even when genes differ a lot in absolute level
+#   heatmap_top100_ISGs_expression_mockgrey.png / .pdf   every replicate coloured against that gene's Untreated (Mock) mean: Mock = light grey/white, above Mock = red, below = blue
 #   heatmap_top100_ISGs_expression.csv               gene, IFNB-vs-Mock log2FC / padj, and the VST value of every sample
 # Writes to requant_v2_outputs/figures_heatmaps/   Usage: Rscript 67_heatmap_top100_isgs.R   (PROJ from 'source setup_session.sh')
 
@@ -54,4 +55,9 @@ Z <- t(scale(t(X))); lim <- as.numeric(quantile(abs(Z), CAP_Q))
 save_ph(Z, "heatmap_top100_ISGs_expression_rowZ", colorRampPalette(c("#2B6CB0", "white", "#C53030"))(100), seq(-lim, lim, length.out = 101),
         list(at = c(-lim, 0, lim), text = c(sprintf("%.1f", -lim), "0", sprintf("%.1f", lim))),
         sprintf("Top %d IFNB ISGs: expression, row z-score", nrow(Z)))
+# 3. Mock-anchored: each replicate's VST minus the gene's Untreated mean, Mock level = light grey / white
+Xm <- X - rowMeans(X[, seq_len(nrep[[1]]), drop = FALSE]); limm <- as.numeric(quantile(abs(Xm), CAP_Q))
+save_ph(Xm, "heatmap_top100_ISGs_expression_mockgrey", colorRampPalette(c("#2B6CB0", "#F2F2F2", "#C53030"))(100), seq(-limm, limm, length.out = 101),
+        list(at = c(-limm, 0, limm), text = c(sprintf("%.1f", -limm), "0 (Mock mean)", sprintf("%.1f", limm))),
+        sprintf("Top %d IFNB ISGs: each replicate vs Untreated mean (Mock = grey)", nrow(Xm)))
 message("VST colour range ", round(lo, 1), " to ", round(hi, 1), "; z-score range +/- ", round(lim, 2), "\nSaved to: ", OUT)
