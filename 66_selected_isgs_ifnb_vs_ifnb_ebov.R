@@ -10,6 +10,9 @@ suppressPackageStartupMessages({ library(readr); library(dplyr); library(ggplot2
 select <- dplyr::select; filter <- dplyr::filter
 
 GENES <- c("Zbp1", "Isg15", "Xaf1", "Irf7", "Mx2", "Srms", "Ifi208", "Mx1", "Usp18", "Gm43302", "Cfb")     # matched ignoring case
+# any other gene(s) without editing the file:  GENES=Axl OUT_NAME=Axl_IFNB_vs_IFNB_EBOV Rscript 66_selected_isgs_ifnb_vs_ifnb_ebov.R   (comma-separate several genes)
+if (nzchar(Sys.getenv("GENES"))) GENES <- trimws(strsplit(Sys.getenv("GENES"), ",")[[1]])
+OUT_NAME <- Sys.getenv("OUT_NAME", unset = "selected_ISGs_IFNB_vs_IFNB_EBOV")
 INK <- "#1F2933"; C_B <- "#2B6CB0"; C_BE <- "#9BD08E"
 PROJ <- Sys.getenv("PROJ", unset = file.path(
   Sys.getenv("HOME"),
@@ -29,7 +32,7 @@ dds <- readRDS(file.path(RNA, "dds_v2_decoyAware_hostNormalised.rds"))
 df <- as.data.frame(results(dds, contrast = c("group", "IFNB_EBOV", "IFNB_Mock"))) |> tibble::rownames_to_column("gene_id") |> transmute(gene_id, diff_lfc = log2FoldChange, diff_padj = padj)
 T <- top |> left_join(be, by = "gene_id") |> left_join(df, by = "gene_id") |> mutate(gene_name = factor(gene_name, levels = gene_name))
 write_csv(T |> transmute(gene_name, gene_id, log2FC_IFNB_vs_Mock = lfc_B, padj_IFNB_vs_Mock = padj_B, log2FC_IFNB_EBOV_vs_Mock = lfc_BE, padj_IFNB_EBOV_vs_Mock = padj_BE,
-                         log2FC_diff_IFNB_EBOV_vs_IFNB_unshrunk = diff_lfc, padj_IFNB_EBOV_vs_IFNB = diff_padj), file.path(OUT, "selected_ISGs_IFNB_vs_IFNB_EBOV.csv"))
+                         log2FC_diff_IFNB_EBOV_vs_IFNB_unshrunk = diff_lfc, padj_IFNB_EBOV_vs_IFNB = diff_padj), file.path(OUT, paste0(OUT_NAME, ".csv")))
 print(as.data.frame(T |> transmute(gene = gene_name, IFNB = round(lfc_B, 2), IFNB_EBOV = round(lfc_BE, 2), padj_diff = signif(diff_padj, 3), stars = stars(diff_padj))), row.names = FALSE)
 
 L <- bind_rows(T |> transmute(gene_name, cond = "IFNB vs Mock", lfc = lfc_B, se = se_B, padj = padj_B),
@@ -48,11 +51,12 @@ p <- ggplot(L, aes(gene_name, lfc, fill = cond)) + geom_col(position = dg, width
   geom_text(data = bk, aes(x = x, y = y + 0.4 * pad, label = lab), inherit.aes = FALSE, colour = INK, size = 4, vjust = 0, fontface = "bold") +
   geom_hline(yintercept = 0, colour = INK, linewidth = 0.4) + scale_fill_manual(values = c(`IFNB vs Mock` = C_B, `IFNB+EBOV vs Mock` = C_BE), name = NULL) +
   scale_y_continuous(expand = expansion(mult = c(0.02, 0.12))) +
-  labs(title = "Selected IFNB-induced genes: IFNB vs IFNB+EBOV",
+  labs(title = if (nrow(T) == 1) sprintf("%s: IFNB vs IFNB+EBOV", T$gene_name[1]) else "Selected IFNB-induced genes: IFNB vs IFNB+EBOV",
        subtitle = "bars = shrunk log2FC vs Mock +/- 1 SE (small grey stars = padj vs Mock); bracket = IFNB+EBOV vs IFNB (does EBOV change the induction?)", x = NULL, y = "log2 fold-change vs Mock") +
   theme_bw(base_size = 12) + theme(panel.grid.minor = element_blank(), panel.grid.major.x = element_blank(), panel.grid.major.y = element_line(colour = "grey92", linewidth = 0.3),
         panel.border = element_rect(colour = "grey70"), axis.text = element_text(colour = INK), axis.text.x = element_text(angle = 45, hjust = 1, face = "italic"),
         axis.title = element_text(colour = INK), plot.title = element_text(colour = INK, face = "bold"), plot.subtitle = element_text(colour = "grey35", size = 8.5), legend.position = "top")
-ggsave(file.path(OUT, "selected_ISGs_IFNB_vs_IFNB_EBOV.png"), p, width = 10, height = 5.5, dpi = 300)
-ggsave(file.path(OUT, "selected_ISGs_IFNB_vs_IFNB_EBOV.pdf"), p, width = 10, height = 5.5)
+W <- max(4.5, 0.8 * nrow(T) + 2)
+ggsave(file.path(OUT, paste0(OUT_NAME, ".png")), p, width = W, height = 5.5, dpi = 300)
+ggsave(file.path(OUT, paste0(OUT_NAME, ".pdf")), p, width = W, height = 5.5)
 message("Saved to: ", OUT)
