@@ -23,9 +23,18 @@ RNA <- file.path(PROJ, "requant_v2_outputs")
 OUT <- file.path(RNA, "figures_gene_bars"); dir.create(OUT, showWarnings = FALSE)
 stars <- function(p) ifelse(is.na(p), "", ifelse(p < 0.001, "***", ifelse(p < 0.01, "**", ifelse(p < 0.05, "*", "ns"))))
 
-ann <- read_csv(file.path(RNA, "DE_v2_IFNB_vs_Mock_annotated.csv"), show_col_types = FALSE) |> mutate(key = tolower(gene_name)) |> filter(key %in% tolower(GENES)) |> distinct(key, .keep_all = TRUE)
-miss <- setdiff(tolower(GENES), ann$key)
-if (length(miss)) message("Not found in the DE table (check the symbol): ", paste(GENES[tolower(GENES) %in% miss], collapse = ", "))
+allg <- read_csv(file.path(RNA, "DE_v2_IFNB_vs_Mock_annotated.csv"), show_col_types = FALSE) |> mutate(key = tolower(gene_name))
+want <- tolower(GENES)                                    # gene symbols or Ensembl gene IDs (ENSMUSG...) both work
+ann <- allg |> filter(key %in% want | tolower(gene_id) %in% want | tolower(sub("\\..*$", "", gene_id)) %in% want) |> distinct(gene_id, .keep_all = TRUE)
+miss <- GENES[!vapply(want, function(w) any(allg$key == w | tolower(allg$gene_id) == w | tolower(sub("\\..*$", "", allg$gene_id)) == w), logical(1))]
+if (length(miss)) {
+  message("Not found in the DE table: ", paste(miss, collapse = ", "))
+  for (m in miss) {                                       # similar symbols, so a renamed gene can be spotted
+    cand <- allg |> filter(startsWith(key, substr(tolower(m), 1, min(4, nchar(m))))) |> arrange(desc(baseMean)) |> slice_head(n = 12)
+    if (nrow(cand)) { message("  symbols starting like '", m, "':"); print(as.data.frame(cand |> select(gene_name, gene_id, baseMean)), row.names = FALSE) }
+  }
+}
+if (!nrow(ann)) stop("None of the genes were found")
 top <- ann |> arrange(desc(log2FoldChange)) |> transmute(gene_id, gene_name, lfc_B = log2FoldChange, se_B = lfcSE, padj_B = padj)
 be <- read_csv(file.path(RNA, "DE_v2_IFNB_EBOV_vs_Mock_annotated.csv"), show_col_types = FALSE) |> transmute(gene_id, lfc_BE = log2FoldChange, se_BE = lfcSE, padj_BE = padj)
 dds <- readRDS(file.path(RNA, "dds_v2_decoyAware_hostNormalised.rds"))
