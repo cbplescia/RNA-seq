@@ -42,8 +42,8 @@ if (nrow(mf)) {
   message(sprintf("GO_MF terms used: %d%s", nrow(sig), if (exploratory) " (exploratory)" else ""))
   expl <- if (exploratory) "exploratory: no term reaches p.adjust < 0.05" else sprintf("p.adjust < %g", PADJ_SIG)
   # ---- 1. dotplot ----
-  sig$Description <- factor(sig$Description, levels = rev(sig$Description))
-  p1 <- ggplot(sig, aes(ratio, Description, size = Count, colour = p.adjust)) + geom_point() + scale_colour_gradient(low = "#C53030", high = "#9ECAE1", name = "p.adjust") +
+  sig_dot <- sig |> mutate(Description = factor(Description, levels = rev(Description)))
+  p1 <- ggplot(sig_dot, aes(ratio, Description, size = Count, colour = p.adjust)) + geom_point() + scale_colour_gradient(low = "#C53030", high = "#9ECAE1", name = "p.adjust") +
     scale_size_continuous(range = c(2, 7), name = "genes") + scale_y_discrete(labels = function(x) wrap(x, 50)) +
     labs(title = "EBOV vs Mock, up-regulated genes: enriched GO molecular functions", subtitle = expl, x = "gene ratio", y = NULL) + theme_f()
   save2(p1, "GO_MF_up_dotplot", 8.5, 0.32 * nrow(sig) + 2)
