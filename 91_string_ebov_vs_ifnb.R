@@ -8,7 +8,8 @@
 #                                       (GO Process / Function, KEGG, Reactome, WikiPathways; FDR < 0.05); clusters with no enriched term are named after their hubs
 #   enrichment_top_terms                STRING functional enrichment of the whole set (top terms per category by FDR)
 #   cluster_names.csv, interactions.csv, hubs.csv, clusters.csv, enrichment_all.csv, ppi_stats.csv
-# Usage: Rscript 91_string_ebov_vs_ifnb.R   (PROJ from 'source setup_session.sh';  STRING_SCORE=400  LFC_CUT=0.58  STRING_VERSION=11.5 optional)
+# Usage: Rscript 91_string_ebov_vs_ifnb.R   (other contrast: GROUP_A=IFNB_EBOV GROUP_B=IFNB_Mock Rscript 91_string_ebov_vs_ifnb.R)
+#   old usage line kept for reference: Rscript 91_string_ebov_vs_ifnb.R   (PROJ from 'source setup_session.sh';  STRING_SCORE=400  LFC_CUT=0.58  STRING_VERSION=11.5 optional)
 
 t0 <- Sys.time(); say <- function(...) { message(sprintf("[%5.1f min] ", as.numeric(difftime(Sys.time(), t0, units = "mins"))), ...); flush.console() }
 suppressPackageStartupMessages({ library(readr); library(dplyr); library(tidyr); library(ggplot2); library(ggrepel); library(DESeq2) })
@@ -24,7 +25,11 @@ PROJ <- Sys.getenv("PROJ", unset = file.path(
   "20251009-100725_Maury_25161_WivfFacICOTHFAUJwSPeHBEFfCfNtCRpUSgVGUkz",
   "results/Maury_25161"))
 RNA <- file.path(PROJ, "requant_v2_outputs")
-OUTR <- file.path(RNA, "figures_string_EBOV_vs_IFNB"); dir.create(OUTR, recursive = TRUE, showWarnings = FALSE)
+A_GRP <- Sys.getenv("GROUP_A", unset = "Mock_EBOV"); B_GRP <- Sys.getenv("GROUP_B", unset = "IFNB_Mock")          # default: EBOV (alone) vs IFNB (alone); e.g. GROUP_A=IFNB_EBOV GROUP_B=IFNB_Mock
+LABN <- c(Mock_Mock = "Mock", Mock_EBOV = "EBOV", IFNB_Mock = "IFNB", IFNB_EBOV = "IFNB+EBOV", IFNY_Mock = "IFNG", IFNY_EBOV = "IFNG+EBOV", Mock_MARV = "MARV", IFNB_MARV = "IFNB+MARV", IFNY_MARV = "IFNG+MARV")
+A_NAME <- unname(ifelse(A_GRP %in% names(LABN), LABN[A_GRP], A_GRP)); B_NAME <- unname(ifelse(B_GRP %in% names(LABN), LABN[B_GRP], B_GRP))
+tag <- paste0(gsub("\\+", "_", A_NAME), "_vs_", gsub("\\+", "_", B_NAME)); SETA <- paste0(gsub("\\+", "_", A_NAME), "_higher"); SETB <- paste0(gsub("\\+", "_", B_NAME), "_higher")
+OUTR <- file.path(RNA, paste0("figures_string_", tag)); dir.create(OUTR, recursive = TRUE, showWarnings = FALSE)
 cache <- file.path(PROJ, "stringdb_cache"); dir.create(cache, showWarnings = FALSE)
 wrap <- function(x, w = 48) vapply(strwrap(x, w, simplify = FALSE), paste, "", collapse = "\n")
 options(timeout = 600)
@@ -33,25 +38,25 @@ say("connecting to STRING v", STRING_VERSION, " (mouse); the first run downloads
 sdb <- STRINGdb::STRINGdb$new(version = STRING_VERSION, species = 10090, score_threshold = 0L, network_type = "full", input_directory = cache)
 
 dds <- readRDS(file.path(RNA, "dds_v2_decoyAware_hostNormalised.rds"))
-if (!all(c("Mock_EBOV", "IFNB_Mock") %in% levels(dds$group))) stop("Groups Mock_EBOV and IFNB_Mock are needed in the DESeq2 object")
-ct <- c("group", "Mock_EBOV", "IFNB_Mock")
-say("computing the DESeq2 contrast EBOV vs IFNB ...")
+if (!all(c(A_GRP, B_GRP) %in% levels(dds$group))) stop("Groups ", A_GRP, " and ", B_GRP, " are needed in the DESeq2 object (available: ", paste(levels(dds$group), collapse = ", "), ")")
+ct <- c("group", A_GRP, B_GRP)
+say("computing the DESeq2 contrast ", A_NAME, " vs ", B_NAME, " ...")
 res <- results(dds, contrast = ct)
 shr <- if (requireNamespace("ashr", quietly = TRUE)) lfcShrink(dds, contrast = ct, res = res, type = "ashr") else lfcShrink(dds, contrast = ct, type = "normal")
 ann <- read_csv(file.path(RNA, "DE_v2_IFNB_vs_Mock_annotated.csv"), show_col_types = FALSE) |> select(gene_id, gene_name, gene_biotype)
 D <- as.data.frame(shr) |> tibble::rownames_to_column("gene_id") |> as_tibble() |> left_join(ann, by = "gene_id") |> arrange(padj)
-write_csv(D, file.path(RNA, "DE_v2_EBOV_vs_IFNB_annotated.csv"))
+write_csv(D, file.path(RNA, paste0("DE_v2_", tag, "_annotated.csv")))
 d <- D |> filter(!is.na(padj), grepl("^ENSMUSG", gene_id), gene_biotype == "protein_coding", !is.na(gene_name), gene_name != "") |> distinct(gene_name, .keep_all = TRUE)
 mk <- function(dir) {
-  f <- function(cut) if (dir == "EBOV") d |> filter(padj < PADJ_CUT, log2FoldChange > cut) else d |> filter(padj < PADJ_CUT, log2FoldChange < -cut)
+  f <- function(cut) if (dir == "A") d |> filter(padj < PADJ_CUT, log2FoldChange > cut) else d |> filter(padj < PADJ_CUT, log2FoldChange < -cut)
   g <- f(LFC_CUT)
   if (nrow(g) < 10 && LFC_CUT > 0) { say(dir, " higher: only ", nrow(g), " genes with |log2FC| > ", LFC_CUT, " - using padj alone"); g <- f(0) }
-  if (dir == "IFNB") g <- g |> mutate(log2FoldChange = -log2FoldChange)               # shown as "how much higher in IFNB"
+  if (dir == "B") g <- g |> mutate(log2FoldChange = -log2FoldChange)               # shown as "how much higher in B"
   g
 }
-ups <- list(EBOV_higher = list(all = d, up = mk("EBOV")), IFNB_higher = list(all = d, up = mk("IFNB")))
-DESC <- c(EBOV_higher = "higher in EBOV than in IFNB", IFNB_higher = "higher in IFNB than in EBOV")
-say(sprintf("EBOV vs IFNB: %d protein-coding genes tested | %s: %d genes | %s: %d genes", nrow(d), DESC[["EBOV_higher"]], nrow(ups$EBOV_higher$up), DESC[["IFNB_higher"]], nrow(ups$IFNB_higher$up)))
+ups <- setNames(list(list(all = d, up = mk("A")), list(all = d, up = mk("B"))), c(SETA, SETB))
+DESC <- setNames(c(sprintf("higher in %s than in %s", A_NAME, B_NAME), sprintf("higher in %s than in %s", B_NAME, A_NAME)), c(SETA, SETB))
+say(sprintf("%s vs %s: %d protein-coding genes tested | %s: %d genes | %s: %d genes", A_NAME, B_NAME, nrow(d), DESC[[SETA]], nrow(ups[[SETA]]$up), DESC[[SETB]], nrow(ups[[SETB]]$up)))
 for (k in names(ups)) { dir.create(file.path(OUTR, k), showWarnings = FALSE); write_csv(ups[[k]]$up |> arrange(padj) |> select(gene_id, gene_name, baseMean, log2FoldChange, padj), file.path(OUTR, k, "genes_in_set.csv")) }
 if (any(vapply(ups, function(u) nrow(u$up), 1L) < 3)) stop("A set has fewer than 3 genes - nothing to build a network from (try LFC_CUT=0)")
 
@@ -111,7 +116,7 @@ for (nm in names(ups)) {
     EDp <- ed |> left_join(V |> select(STRING_id, x, y), by = c("from" = "STRING_id")) |> rename(x1 = x, y1 = y) |> left_join(V |> select(STRING_id, x, y), by = c("to" = "STRING_id")) |> rename(x2 = x, y2 = y)
     ccol <- setNames(c(scales::hue_pal(l = 55)(length(levels(V$cluster)) - 1), "grey70")[seq_along(levels(V$cluster))], levels(V$cluster))
     lab <- V |> slice_max(deg, n = N_LAB, with_ties = FALSE)
-    ttl <- sprintf("STRING network of genes %s (EBOV vs IFNB)", DESC[[nm]]); sub <- sprintf("%d genes, %d interactions (combined score >= %d); node size = number of partners; %d genes have no interaction at this score", nrow(V), nrow(ed), STRING_SCORE, nrow(hits) - nrow(V))
+    ttl <- sprintf("STRING network of genes %s", DESC[[nm]]); sub <- sprintf("%d genes, %d interactions (combined score >= %d); node size = number of partners; %d genes have no interaction at this score", nrow(V), nrow(ed), STRING_SCORE, nrow(hits) - nrow(V))
     p1 <- ggplot() + geom_segment(data = EDp, aes(x = x1, y = y1, xend = x2, yend = y2, alpha = combined_score), colour = "grey55", linewidth = 0.3) + scale_alpha_continuous(range = c(0.2, 0.7), guide = "none") +
       geom_point(data = V, aes(x, y, size = deg, colour = cluster)) + scale_colour_manual(values = ccol, name = NULL, labels = function(x) vapply(x, function(z) if (z %in% cn$cluster) cn$lbl[cn$cluster == z] else z, "")) + scale_size_continuous(range = c(1, 7), guide = "none") +
       geom_text_repel(data = lab, aes(x, y, label = gene_name), size = 2.6, fontface = "italic", colour = INK, max.overlaps = Inf, min.segment.length = 0, segment.size = 0.2, segment.colour = "grey60", box.padding = 0.25, seed = 1) +
@@ -121,7 +126,7 @@ for (nm in names(ups)) {
     save2(p1, "network_clusters", 11, 8.5)
     lim <- max(abs(V$lfc), na.rm = TRUE)
     p2 <- ggplot() + geom_segment(data = EDp, aes(x = x1, y = y1, xend = x2, yend = y2, alpha = combined_score), colour = "grey55", linewidth = 0.3) + scale_alpha_continuous(range = c(0.2, 0.7), guide = "none") +
-      geom_point(data = V, aes(x, y, size = deg, fill = lfc), shape = 21, colour = "grey30", stroke = 0.3) + scale_fill_gradient(low = "#FEE0D2", high = "#67000D", limits = c(min(V$lfc, na.rm = TRUE), lim), name = if (nm == "IFNB_higher") "log2FC\n(higher in IFNB)" else "log2FC\n(higher in EBOV)") + scale_size_continuous(range = c(1, 7), guide = "none") +
+      geom_point(data = V, aes(x, y, size = deg, fill = lfc), shape = 21, colour = "grey30", stroke = 0.3) + scale_fill_gradient(low = "#FEE0D2", high = "#67000D", limits = c(min(V$lfc, na.rm = TRUE), lim), name = sprintf("log2FC\n(higher in %s)", if (nm == SETB) B_NAME else A_NAME)) + scale_size_continuous(range = c(1, 7), guide = "none") +
       geom_text_repel(data = lab, aes(x, y, label = gene_name), size = 2.6, fontface = "italic", colour = INK, max.overlaps = Inf, min.segment.length = 0, segment.size = 0.2, segment.colour = "grey60", box.padding = 0.25, seed = 1) +
       labs(title = ttl, subtitle = paste0(sub, "; colour = log2FC")) + theme_void(base_size = 11) + theme(plot.title = element_text(colour = INK, face = "bold"), plot.subtitle = element_text(colour = "grey35", size = 8.5), legend.position = "right", plot.margin = margin(10, 10, 10, 10))
     save2(p2, "network_log2FC", 11, 8.5)
