@@ -23,7 +23,7 @@ from scipy.stats import fisher_exact
 PROJ = os.environ.get("PROJ", os.path.join(os.path.expanduser("~"), "Documents/aviti_rnaseq/2025/aviti/20251009-100725_Maury_25161_WivfFacICOTHFAUJwSPeHBEFfCfNtCRpUSgVGUkz/results/Maury_25161"))
 RNA = os.path.join(PROJ, "requant_v2_outputs")
 GTF = os.environ.get("GTF", os.path.join(PROJ, "ref", "Mus_musculus.GRCm39.109.gtf")); GENOME = os.environ.get("GENOME", os.path.join(PROJ, "ref", "Mus_musculus.GRCm39.dna.primary_assembly.fa"))
-UP, DOWN, REL = int(os.environ.get("UP", "1500")), int(os.environ.get("DOWN", "500")), float(os.environ.get("REL", "0.88")); N_BG, SEED = int(os.environ.get("N_BG", "300")), int(os.environ.get("SEED", "1"))
+UP, DOWN, REL = int(os.environ.get("UP", "1500")), int(os.environ.get("DOWN", "500")), float(os.environ.get("REL", "0.88")); N_BG, SEED = int(os.environ.get("N_BG", "300")), int(os.environ.get("SEED", "1")); MIN_COUNT = int(os.environ.get("MIN_COUNT", "3")); LOR = float(os.environ.get("LOR", "1")); N_LAB = int(os.environ.get("N_LAB", "10"))
 OUT = os.path.join(RNA, "promoter_tf_groups"); os.makedirs(OUT, exist_ok=True)
 GROUPS = ["fully suppressed", "partly restricted", "not suppressed", "background"]
 GCOL = {"fully suppressed": "#762A83", "partly restricted": "#E08214", "not suppressed": "#1B7837", "background": "#9AA0A6"}
@@ -180,13 +180,20 @@ def main():
     for k, (mid, name, *_ ) in enumerate(pm):
         c = {g: int(P[grp_arr == g, k].sum()) for g in GROUPS}
         def fe(a, b):                                            # group a vs group b
-            t = [[c[a], n_g[a] - c[a]], [c[b], n_g[b] - c[b]]]; o, p = fisher_exact(t); return (np.log2((o if np.isfinite(o) and o > 0 else (0.01 if o == 0 else 100)) ), p)
+            t = [[c[a], n_g[a] - c[a]], [c[b], n_g[b] - c[b]]]; o, p = fisher_exact(t)
+            lo = np.log2(((c[a] + 0.5) * (n_g[b] - c[b] + 0.5)) / ((n_g[a] - c[a] + 0.5) * (c[b] + 0.5)))        # 0.5 added to every cell, so a zero count gives a finite value
+            return (lo, p)
         l1, p1 = fe("not suppressed", "fully suppressed"); l2, p2 = fe("not suppressed", "partly restricted"); l3, p3 = fe("fully suppressed", "background"); l4, p4 = fe("not suppressed", "background"); l5, p5 = fe("partly restricted", "background")
-        rows.append(dict(motif_id=mid, TF=name, **{f"pct_{g.split()[0]}": 100.0 * c[g] / max(1, n_g[g]) for g in GROUPS}, log2OR_not_vs_full=l1, p_not_vs_full=p1, log2OR_not_vs_partial=l2, p_not_vs_partial=p2,
+        rows.append(dict(motif_id=mid, TF=name, n_full=c["fully suppressed"], n_partial=c["partly restricted"], n_not=c["not suppressed"], n_bg=c["background"], **{f"pct_{g.split()[0]}": 100.0 * c[g] / max(1, n_g[g]) for g in GROUPS}, log2OR_not_vs_full=l1, p_not_vs_full=p1, log2OR_not_vs_partial=l2, p_not_vs_partial=p2,
                          log2OR_full_vs_bg=l3, p_full_vs_bg=p3, log2OR_partial_vs_bg=l5, p_partial_vs_bg=p5, log2OR_not_vs_bg=l4, p_not_vs_bg=p4))
     for key in ("not_vs_full", "not_vs_partial", "full_vs_bg", "partial_vs_bg", "not_vs_bg"):
         q = bh([r[f"p_{key}"] for r in rows])
         for r, v in zip(rows, q): r[f"FDR_{key}"] = v
+    for r in rows:
+        if r["log2OR_not_vs_full"] >= LOR and r["p_not_vs_full"] < 0.05 and r["n_not"] >= MIN_COUNT: r["class"] = "NOT-suppressed-associated"
+        elif r["log2OR_not_vs_full"] <= -LOR and r["p_not_vs_full"] < 0.05 and r["n_full"] >= MIN_COUNT: r["class"] = "fully-suppressed-associated"
+        elif min(r["pct_fully"], r["pct_not"]) >= 20 and abs(r["log2OR_not_vs_full"]) < 0.5: r["class"] = "shared (common to both)"
+        else: r["class"] = "no clear difference"
     rows.sort(key=lambda r: r["p_not_vs_full"]); keys = list(rows[0].keys())
     with open(f"{OUT}/tf_group_comparison.tsv", "w") as o:
         o.write("\t".join(keys) + "\n"); [o.write("\t".join(f"{r[k]:.4g}" if isinstance(r[k], float) else str(r[k]) for k in keys) + "\n") for r in rows]
@@ -225,14 +232,31 @@ def main():
     ax2.set_title("TF gene log2FC\nvs Mock", fontsize=8); ax.set_xlabel("* FDR < 0.05, + p < 0.05 (not suppressed vs fully suppressed). Sorted: top = more common in NOT-suppressed promoters.", fontsize=6.5, color="grey", loc="left")
     for e in ("png", "pdf"): fig.savefig(f"{OUT}/tf_group_dotplot.{e}", dpi=300, bbox_inches="tight")
     plt.close(fig)
-    # ---- volcano ----
-    fig, ax = plt.subplots(figsize=(7, 5.5)); x = np.array([r["log2OR_not_vs_full"] for r in rows]); y = -np.log10([r["p_not_vs_full"] for r in rows])
-    ax.scatter(x, y, s=10, c=["#C53030" if r["FDR_not_vs_full"] < 0.05 else "#9AA0A6" for r in rows], alpha=0.8)
-    for r, xx, yy in list(zip(rows, x, y))[:14]: ax.text(xx, yy, r["TF"], fontsize=6.5)
-    ax.axvline(0, color="black", lw=0.6); ax.set_xlabel("log2 odds ratio: motif present in NOT-suppressed vs fully suppressed promoters"); ax.set_ylabel("-log10 p (Fisher)"); ax.spines[["top", "right"]].set_visible(False)
+    # ---- volcano: x = log2 odds ratio (not suppressed vs fully suppressed); labels = the largest |log2 OR| among motifs that pass the p / count filter ----
+    fig, ax = plt.subplots(figsize=(7.5, 6)); x = np.array([r["log2OR_not_vs_full"] for r in rows]); y = -np.log10([r["p_not_vs_full"] for r in rows])
+    colr = ["#1B7837" if r["class"].startswith("NOT") else "#762A83" if r["class"].startswith("fully") else "#9AA0A6" for r in rows]
+    ax.scatter(x, y, s=12, c=colr, alpha=0.8, linewidths=0); ax.axvline(0, color="black", lw=0.6); ax.axvline(LOR, color="grey", lw=0.5, ls="--"); ax.axvline(-LOR, color="grey", lw=0.5, ls="--"); ax.axhline(-np.log10(0.05), color="grey", lw=0.5, ls="--")
+    def labelled(cls):
+        sel = [(abs(r["log2OR_not_vs_full"]), r) for r in rows if r["class"] == cls]; seen_tf = set(); out = []
+        for _, r in sorted(sel, key=lambda t: -t[0]):
+            if r["TF"] not in seen_tf: seen_tf.add(r["TF"]); out.append(r)
+            if len(out) >= N_LAB: break
+        return out
+    try:
+        from adjustText import adjust_text
+    except Exception: adjust_text = None
+    texts = []
+    for cls, colz in (("NOT-suppressed-associated", "#1B7837"), ("fully-suppressed-associated", "#762A83")):
+        for r in labelled(cls): texts.append(ax.text(r["log2OR_not_vs_full"], -np.log10(r["p_not_vs_full"]), r["TF"], fontsize=6.5, color=colz))
+    if adjust_text and texts: adjust_text(texts, ax=ax, arrowprops=dict(arrowstyle="-", color="grey", lw=0.4))
+    ax.set_xlabel("log2 odds ratio  (positive = motif more common in NOT-suppressed promoters;  negative = more common in fully suppressed)", fontsize=7.5); ax.set_ylabel("-log10 p (Fisher exact)"); ax.spines[["top", "right"]].set_visible(False)
     ax.set_title(f"TF motifs: not suppressed ({n_g['not suppressed']} genes) vs fully suppressed ({n_g['fully suppressed']} genes) by EBOV", loc="left", fontsize=9, fontweight="bold")
+    ax.text(0.0, -0.13, f"green = NOT-suppressed-associated  (log2OR >= {LOR:g}, p < 0.05, >= {MIN_COUNT} promoters)\npurple = fully-suppressed-associated  (log2OR <= -{LOR:g}, p < 0.05)\nlabels: the {N_LAB} largest |log2 OR| per side", transform=ax.transAxes, ha="left", va="top", fontsize=6.5, color="grey")
     for e in ("png", "pdf"): fig.savefig(f"{OUT}/tf_volcano_not_vs_full.{e}", dpi=300, bbox_inches="tight")
     plt.close(fig)
+    cnt = {}
+    for r in rows: cnt[r["class"]] = cnt.get(r["class"], 0) + 1
+    say("motif classes (not suppressed vs fully suppressed): " + ", ".join(f"{k} {v}" for k, v in sorted(cnt.items())))
     # ---- family level ----
     FAM = [("IRF / STAT", r"IRF|STAT|ISRE"), ("NF-kB / REL", r"NFKB|REL|NF-?KB"), ("AP-1 / CREB / ATF", r"FOS|JUN|ATF|CREB|BATF|AP1|MAF"), ("SP / KLF", r"^SP\d|KLF|^SP1"), ("C/EBP", r"CEBP"), ("ETS", r"^ETS|ELF|ELK|SPI|FLI|ERG|GABP")]
     fam_of = lambda n: next((f for f, rg in FAM if re.search(rg, n, re.I)), "other")
