@@ -10,6 +10,7 @@ Outputs in requant_v2_outputs/promoter_tf_groups/:
   tf_group_comparison.tsv        every motif: % of promoters with a site per group, odds ratios, p values, FDR
   promoter_motif_best_scores.tsv gene x motif best relative score (the raw scan)       genes_scanned.tsv   the genes, groups and promoter coordinates
   tf_group_dotplot.png / .pdf    the most informative TFs x groups (colour = % promoters with a site), with the TF's own expression (IFNB, EBOV, IFNB+EBOV vs Mock) alongside
+  tf_usage_map.png / .pdf        every gene (rows, grouped by the effect of EBOV) x the motifs that best separate the groups: which promoters use which TF motifs
   tf_volcano_not_vs_full.png     effect size and significance of every TF motif, not suppressed vs fully suppressed
   tf_family_by_group.png         the same comparison at the level of TF families (IRF/STAT, NF-kB, AP-1/CREB, SP/KLF, C/EBP, ETS, other)
 IMPORTANT: motif presence is a possible-binding-site signal, not evidence of binding; a promoter-only scan misses enhancers; with few genes per group, differences are suggestive. Groups are small, so look at
@@ -232,6 +233,33 @@ def main():
     ax2.set_title("TF gene log2FC\nvs Mock", fontsize=8); ax.set_xlabel("* FDR < 0.05, + p < 0.05 (not suppressed vs fully suppressed). Sorted: top = more common in NOT-suppressed promoters.", fontsize=6.5, color="grey", loc="left")
     for e in ("png", "pdf"): fig.savefig(f"{OUT}/tf_group_dotplot.{e}", dpi=300, bbox_inches="tight")
     plt.close(fig)
+    # ---- TF usage map: genes (rows, in group blocks) x the TF motifs that best separate the groups (columns); a tile = the promoter has a site, colour = best relative score ----
+    kid = {m[0]: k for k, m in enumerate(pm)}; chosen, seen_tf = [], set()
+    def take(lst, n):
+        c = 0
+        for r in lst:
+            if r["TF"] in seen_tf: continue
+            seen_tf.add(r["TF"]); chosen.append(r); c += 1
+            if c >= n: break
+    take(sorted([r for r in rows if r["p_not_vs_bg"] < 0.05 and r["log2OR_not_vs_bg"] > 0], key=lambda r: -r["log2OR_not_vs_bg"]), 8)
+    take(sorted([r for r in rows if r["p_full_vs_bg"] < 0.05 and r["log2OR_full_vs_bg"] > 0], key=lambda r: -r["log2OR_full_vs_bg"]), 8)
+    take(sorted([r for r in rows if r["p_partial_vs_bg"] < 0.05 and r["log2OR_partial_vs_bg"] > 0], key=lambda r: -r["log2OR_partial_vs_bg"]), 6)
+    take(sorted(rows, key=lambda r: -abs(r["log2OR_not_vs_full"])), 6)
+    if chosen:
+        order = [i for g in GROUPS[:3] for i in np.flatnonzero(grp_arr == g)]; cidx = [kid[r["motif_id"]] for r in chosen]
+        Z = S[np.ix_(order, cidx)].copy(); Z[Z < REL] = np.nan
+        fig = plt.figure(figsize=(0.32 * len(chosen) + 3.2, 0.06 * len(order) + 3)); gs = fig.add_gridspec(1, 2, width_ratios=[0.25, 10], wspace=0.02)
+        ax0 = fig.add_subplot(gs[0]); ax1 = fig.add_subplot(gs[1])
+        ax0.imshow(np.array([[list(int(GCOL[grp_arr[i]][j:j + 2], 16) / 255 for j in (1, 3, 5)) for i in order]]).transpose(1, 0, 2), aspect="auto"); ax0.axis("off")
+        im = ax1.imshow(np.ma.masked_invalid(Z), aspect="auto", cmap="viridis", vmin=REL, vmax=1, interpolation="nearest")
+        bounds = np.cumsum([int((grp_arr == g).sum()) for g in GROUPS[:3]])[:-1]
+        for b in bounds: ax1.axhline(b - 0.5, color="black", lw=0.8)
+        ax1.set_xticks(range(len(chosen))); ax1.set_xticklabels([r["TF"] for r in chosen], rotation=60, ha="right", fontsize=7); ax1.set_yticks([])
+        for g, lo, hi in zip(GROUPS[:3], np.r_[0, bounds], np.r_[bounds, len(order)]): ax0.text(-1.2, (lo + hi) / 2, f"{g} ({hi - lo})", rotation=90, va="center", ha="center", fontsize=7, color=GCOL[g])
+        fig.colorbar(im, ax=ax1, fraction=0.03, pad=0.03, label="best relative score")
+        ax1.set_title(f"Promoter TF-motif usage: {len(order)} IFNB-induced genes (rows, by effect of EBOV) x the motifs that best separate the groups", loc="left", fontsize=8.5, fontweight="bold")
+        for e in ("png", "pdf"): fig.savefig(f"{OUT}/tf_usage_map.{e}", dpi=300, bbox_inches="tight")
+        plt.close(fig)
     # ---- volcano: x = log2 odds ratio (not suppressed vs fully suppressed); labels = the largest |log2 OR| among motifs that pass the p / count filter ----
     fig, ax = plt.subplots(figsize=(7.5, 6)); x = np.array([r["log2OR_not_vs_full"] for r in rows]); y = -np.log10([r["p_not_vs_full"] for r in rows])
     colr = ["#1B7837" if r["class"].startswith("NOT") else "#762A83" if r["class"].startswith("fully") else "#9AA0A6" for r in rows]
