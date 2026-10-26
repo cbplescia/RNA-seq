@@ -62,7 +62,10 @@ for (nm in names(ups)) {
 
   # --- PPI statistics ---
   ppi <- tryCatch(sdb$get_ppi_enrichment(hits$STRING_id), error = function(e) { say("PPI enrichment failed: ", conditionMessage(e)); NULL })
-  if (!is.null(ppi)) { ppi <- as.data.frame(ppi); write_csv(ppi, file.path(OUT, "ppi_stats.csv")); say("PPI: ", paste(names(ppi), unlist(ppi[1, ]), sep = " = ", collapse = "; ")) }
+  if (!is.null(ppi)) {
+    ppi_df <- tryCatch(as.data.frame(lapply(as.list(ppi), function(x) if (length(x)) as.character(x[[1]]) else NA_character_), stringsAsFactors = FALSE), error = function(e) NULL)   # elements can be empty
+    if (!is.null(ppi_df) && nrow(ppi_df)) { write_csv(ppi_df, file.path(OUT, "ppi_stats.csv")); say("PPI: ", paste(names(ppi_df), unlist(ppi_df[1, ]), sep = " = ", collapse = "; ")) } else say("PPI enrichment returned no usable values - skipped")
+  }
 
   # --- network ---
   ed <- sdb$get_interactions(hits$STRING_id) |> as_tibble() |> filter(combined_score >= STRING_SCORE, from != to) |> mutate(a = pmin(from, to), b = pmax(from, to)) |> distinct(a, b, .keep_all = TRUE) |> select(from = a, to = b, combined_score)
