@@ -3,6 +3,8 @@
 #   up = padj < PADJ_CUT and shrunk log2FC > LFC_CUT (default 1);  background = every protein-coding gene tested in that comparison (set in STRING for the enrichment).
 #   Uses the STRINGdb package (mouse, taxon 10090); it downloads the STRING data for mouse the first time (a few hundred MB, cached in <project>/stringdb_cache) and needs internet.
 # For each set it writes to requant_v2_outputs/figures_string/<IFNB|EBOV>/ (PNG + PDF):
+#   cluster_names.csv          each cluster named after its most specific enriched STRING term (GO Process / Function, KEGG, Reactome, WikiPathways; FDR < 0.05, small background term size),
+#                              with its top 3 terms and hub genes; clusters without a significant term are named after their hubs. The names are on the network and in the legend
 #   network_clusters           interactions with combined score >= STRING_SCORE (default 700 = high confidence), isolated genes dropped; node colour = Louvain cluster, size = number of
 #                              partners, the top N_LAB hubs labelled; clusters are numbered and listed in the legend with their size
 #   network_log2FC             the same network coloured by the gene's log2FC
@@ -82,9 +84,28 @@ for (nm in names(ups)) {
     set.seed(1); lay <- igraph::layout_with_fr(g, weights = igraph::E(g)$weight)
     V <- tibble(STRING_id = igraph::V(g)$name, gene_name = igraph::V(g)$gene_name, lfc = igraph::V(g)$lfc, x = lay[, 1], y = lay[, 2], deg = igraph::degree(g), cl_raw = as.integer(mem[igraph::V(g)$name])) |>
       mutate(cluster = ifelse(cl_raw %in% top, paste0("cluster ", clab[as.character(cl_raw)]), "other"))
-    cn <- V |> count(cluster) |> mutate(lbl = sprintf("%s (%d genes)", cluster, n)); V$cluster <- factor(V$cluster, levels = c(sort(setdiff(unique(V$cluster), "other")), "other"))
-    write_csv(V |> select(gene_name, STRING_id, degree = deg, cluster, log2FC = lfc) |> arrange(cluster, desc(degree)), file.path(OUT, "hubs.csv"))
-    write_csv(V |> filter(cluster != "other") |> group_by(cluster) |> summarise(n_genes = n(), genes = paste(gene_name[order(-deg)], collapse = ", "), .groups = "drop"), file.path(OUT, "clusters.csv"))
+    # --- name every cluster after its most specific enriched term (STRING enrichment of that cluster's genes against the background); fall back to its hub genes ---
+    name_cluster <- function(ids) {
+      en <- tryCatch(as_tibble(sdb$get_enrichment(ids)), error = function(e) NULL)
+      if (is.null(en) || !nrow(en)) return(tibble(name = NA_character_, top = NA_character_))
+      en <- en |> mutate(fdr = as.numeric(fdr), nbg = as.numeric(number_of_genes_in_background), ng = as.numeric(number_of_genes)) |>
+        filter(category %in% c("Process", "KEGG", "RCTM", "Function", "WikiPathways"), fdr < 0.05) |> arrange(fdr, desc(ng))
+      sp <- en |> filter(nbg <= 600); if (!nrow(sp)) sp <- en
+      if (!nrow(sp)) return(tibble(name = NA_character_, top = NA_character_))
+      tibble(name = sp$description[1], top = paste(head(unique(sp$description), 3), collapse = " | "))
+    }
+    cinfo <- bind_rows(lapply(sort(setdiff(unique(V$cluster), "other")), function(cl) {
+      ids <- V$STRING_id[V$cluster == cl]; r <- name_cluster(ids)
+      hubs3 <- paste(head(V$gene_name[V$cluster == cl][order(-V$deg[V$cluster == cl])], 3), collapse = ", ")
+      tibble(cluster = cl, n_genes = length(ids), cluster_name = if (is.na(r$name)) paste0("no enriched function (hubs: ", hubs3, ")") else r$name, top_terms = r$top, hubs = hubs3)
+    })) |> mutate(short = ifelse(nchar(cluster_name) > 52, paste0(substr(cluster_name, 1, 49), "..."), cluster_name))
+    for (i in seq_len(nrow(cinfo))) say(sprintf("   %s: %s  (%d genes; hubs %s)", cinfo$cluster[i], cinfo$cluster_name[i], cinfo$n_genes[i], cinfo$hubs[i]))
+    write_csv(cinfo |> select(cluster, cluster_name, n_genes, top_terms, hubs), file.path(OUT, "cluster_names.csv"))
+    cn <- V |> count(cluster) |> left_join(cinfo |> select(cluster, short), by = "cluster") |> mutate(lbl = ifelse(is.na(short), sprintf("%s (%d genes)", cluster, n), sprintf("%s. %s (%d genes)", sub("cluster ", "", cluster), short, n)))
+    V <- V |> left_join(cinfo |> select(cluster, cluster_name), by = "cluster")
+    V$cluster <- factor(V$cluster, levels = c(sort(setdiff(unique(V$cluster), "other")), "other"))
+    write_csv(V |> select(gene_name, STRING_id, degree = deg, cluster, cluster_name, log2FC = lfc) |> arrange(cluster, desc(degree)), file.path(OUT, "hubs.csv"))
+    write_csv(V |> filter(cluster != "other") |> group_by(cluster, cluster_name) |> summarise(n_genes = n(), genes = paste(gene_name[order(-deg)], collapse = ", "), .groups = "drop"), file.path(OUT, "clusters.csv"))
     EDp <- ed |> left_join(V |> select(STRING_id, x, y), by = c("from" = "STRING_id")) |> rename(x1 = x, y1 = y) |> left_join(V |> select(STRING_id, x, y), by = c("to" = "STRING_id")) |> rename(x2 = x, y2 = y)
     ccol <- setNames(c(scales::hue_pal(l = 55)(length(levels(V$cluster)) - 1), "grey70")[seq_along(levels(V$cluster))], levels(V$cluster))
     lab <- V |> slice_max(deg, n = N_LAB, with_ties = FALSE)
@@ -92,6 +113,8 @@ for (nm in names(ups)) {
     p1 <- ggplot() + geom_segment(data = EDp, aes(x = x1, y = y1, xend = x2, yend = y2, alpha = combined_score), colour = "grey55", linewidth = 0.3) + scale_alpha_continuous(range = c(0.2, 0.7), guide = "none") +
       geom_point(data = V, aes(x, y, size = deg, colour = cluster)) + scale_colour_manual(values = ccol, name = NULL, labels = function(x) vapply(x, function(z) if (z %in% cn$cluster) cn$lbl[cn$cluster == z] else z, "")) + scale_size_continuous(range = c(1, 7), guide = "none") +
       geom_text_repel(data = lab, aes(x, y, label = gene_name), size = 2.6, fontface = "italic", colour = INK, max.overlaps = Inf, min.segment.length = 0, segment.size = 0.2, segment.colour = "grey60", box.padding = 0.25, seed = 1) +
+      geom_label_repel(data = V |> filter(cluster != "other") |> group_by(cluster) |> summarise(x = median(x), y = median(y), .groups = "drop") |> left_join(cinfo |> select(cluster, short), by = "cluster") |> mutate(txt = wrap(short, 24)),
+                       aes(x, y, label = txt, colour = cluster), size = 3, fontface = "bold", fill = alpha("white", 0.85), label.size = 0.25, lineheight = 0.9, max.overlaps = Inf, box.padding = 0.6, show.legend = FALSE, seed = 2) +
       labs(title = ttl, subtitle = sub) + theme_void(base_size = 11) + theme(plot.title = element_text(colour = INK, face = "bold"), plot.subtitle = element_text(colour = "grey35", size = 8.5), legend.position = "right", plot.margin = margin(10, 10, 10, 10))
     save2(p1, "network_clusters", 11, 8.5)
     lim <- max(abs(V$lfc), na.rm = TRUE)
