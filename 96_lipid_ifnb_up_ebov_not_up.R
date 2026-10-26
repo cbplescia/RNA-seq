@@ -58,7 +58,7 @@ d <- d |> mutate(lipid = ens %in% lipid_ens, ifnb_up = padj_B < PADJ_CUT & lfc_B
                  ebov = case_when(padj_E < PADJ_CUT & lfc_E > 0 ~ "up", padj_E < PADJ_CUT & lfc_E < 0 ~ "down", TRUE ~ "unchanged"), hit = lipid & ifnb_up & ebov != "up")
 L <- d |> filter(lipid); H <- d |> filter(hit)
 say(sprintf("%d protein-coding genes tested; %d lipid genes; %d of them up in IFNB (log2FC > %g); %d also up in EBOV; %d HITS = IFNB-up and EBOV not up (%d EBOV down, %d EBOV unchanged)",
-            nrow(d), nrow(L), sum(L$ifnb_up), sum(L$ifnb_up & L$ebov == "up"), nrow(H), sum(H$ebov == "down"), sum(H$ebov == "unchanged")))
+            nrow(d), nrow(L), sum(L$ifnb_up), LFC_UP, sum(L$ifnb_up & L$ebov == "up"), nrow(H), sum(H$ebov == "down"), sum(H$ebov == "unchanged")))
 write_csv(L |> mutate(go_functions = vapply(ens, fn_all, ""), group = fn_of(ens)) |> arrange(desc(lfc_B)) |> select(gene_name, gene_id, baseMean, group, go_functions, lfc_IFNB = lfc_B, padj_IFNB = padj_B, lfc_EBOV = lfc_E, padj_EBOV = padj_E, lfc_IFNB_EBOV = lfc_BE, padj_IFNB_EBOV = padj_BE), file.path(OUTR, "lipid_genes_all.csv"))
 if (!nrow(H)) stop("No lipid gene is up in IFNB and not up in EBOV at these cut-offs (try LFC_UP=0)")
 write_csv(H |> mutate(go_functions = vapply(ens, fn_all, ""), group = fn_of(ens), ebov_status = ebov) |> arrange(group, desc(lfc_B)) |> select(gene_name, gene_id, baseMean, group, go_functions, ebov_status, lfc_IFNB = lfc_B, padj_IFNB = padj_B, lfc_EBOV = lfc_E, padj_EBOV = padj_E, lfc_IFNB_EBOV = lfc_BE, padj_IFNB_EBOV = padj_BE),
