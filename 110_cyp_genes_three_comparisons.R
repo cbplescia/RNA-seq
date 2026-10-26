@@ -20,7 +20,7 @@ PER_PAGE <- as.integer(Sys.getenv("PER_PAGE", "25")); PATTERN <- Sys.getenv("PAT
 # substrate class by gene-symbol pattern (first match wins; mainly after the Nebert/Guengerich P450 classification, mouse paralogues share the class of their family). Many P450s act on several substrates; the group is the dominant/best-known one.
 GROUPS <- list(
   "Steroid hormone synthesis"             = "^Cyp(11a1|11b[12]|17a1|19a1|21a1)",
-  "Cholesterol, oxysterols & bile acids"  = "^Cyp(7a1|7b1|8b1|27a1|39a1|46a1|51a1?)$",
+  "Cholesterol, oxysterols & bile acids"  = "^Cyp(7a1|7b1|8b1|27a1|39a1|46a1|51(a1)?)$",
   "Vitamin D & retinoic acid"             = "^Cyp(2r1|24a1|27b1|26[abc]1)$",
   "Fatty acids & eicosanoids"             = "^Cyp(4a|4f|4v|4x|2j|2u1|5a1|8a1)",
   "Drugs & xenobiotics (liver-type)"      = "^Cyp(1a|1b|2a|2b|2c|2d|2e|2f|2g|2s|2t|3a|4b)",
@@ -37,7 +37,7 @@ num <- function(x, i) suppressWarnings(as.integer(regmatches(x, regexec("^[Cc]yp
 cyp <- cyp |> rowwise() |> mutate(f1 = num(gene_name, 1), f2 = num(gene_name, 2), f3 = { v <- regmatches(gene_name, regexec("^[Cc]yp([0-9]+)([a-zA-Z]*)([0-9]*)", gene_name))[[1]][3]; ifelse(is.na(v), "", v) }, f4 = { v <- num(gene_name, 3); ifelse(is.na(v), 0L, v) }) |> ungroup() |>
   mutate(group = factor(vapply(gene_name, grp_of, ""), levels = names(GROUPS))) |> arrange(group, f1, f3, f4, gene_name) |> mutate(pos = row_number())
 message("\n== ", nrow(cyp), " Cyp genes in the DE tables, by group:"); for (g in levels(cyp$group)) if (any(cyp$group == g)) message("  ", g, " (", sum(cyp$group == g), "): ", paste(cyp$gene_name[cyp$group == g], collapse = ", "))
-D <- bind_rows(lapply(names(COMP), function(nm) tabs[[nm]] |> inner_join(cyp |> select(gene_id, pos, group), by = "gene_id") |> transmute(gene = gene_name, gene_id, pos, baseMean, comparison = COMP[[nm]], lfc = log2FoldChange, se = lfcSE, padj)))
+D <- bind_rows(lapply(names(COMP), function(nm) tabs[[nm]] |> inner_join(cyp |> select(gene_id, pos, group), by = "gene_id") |> transmute(group, gene = gene_name, gene_id, pos, baseMean, comparison = COMP[[nm]], lfc = log2FoldChange, se = lfcSE, padj)))
 D <- D |> mutate(comparison = factor(comparison, levels = COMP), lab = stars(padj), vj = ifelse(lfc >= 0, 0, 1), ys = lfc + ifelse(lfc >= 0, 1, -1) * (se + 0.03), xlab = paste0(gene, ifelse(baseMean < LOW_EXPR, "†", "")))
 # pages: fill whole groups until PER_PAGE is exceeded
 gsz <- D |> distinct(group, gene) |> dplyr::count(group) |> arrange(group); pg <- 1; used <- 0; gpage <- c()
