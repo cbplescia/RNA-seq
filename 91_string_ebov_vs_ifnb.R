@@ -63,6 +63,7 @@ if (any(vapply(ups, function(u) nrow(u$up), 1L) < 3)) stop("A set has fewer than
 
 for (nm in names(ups)) {
   OUT <- file.path(OUTR, nm); dir.create(OUT, showWarnings = FALSE)
+  if (identical(Sys.getenv("SKIP_DONE"), "1") && file.exists(file.path(OUT, "enrichment_all.csv")) && file.exists(file.path(OUT, "network_clusters.png"))) { say("skipping ", nm, " (already done; SKIP_DONE=1)"); next }
   save2 <- function(p, name, w, h) { ggsave(file.path(OUT, paste0(name, ".png")), p, width = w, height = h, dpi = 300, limitsize = FALSE); ggsave(file.path(OUT, paste0(name, ".pdf")), p, width = w, height = h, limitsize = FALSE) }
   say("==== genes ", DESC[[nm]])
   hits <- sdb$map(as.data.frame(ups[[nm]]$up |> select(gene_name, log2FoldChange)), "gene_name", removeUnmappedRows = TRUE) |> as_tibble() |> distinct(STRING_id, .keep_all = TRUE)
@@ -138,17 +139,21 @@ for (nm in names(ups)) {
   if (!is.null(en) && nrow(en)) {
     en <- en |> mutate(fdr = as.numeric(fdr), p_value = as.numeric(p_value)) |> arrange(fdr)
     write_csv(en |> select(any_of(c("category", "term", "description", "number_of_genes", "number_of_genes_in_background", "p_value", "fdr", "preferredNames"))), file.path(OUT, "enrichment_all.csv"))
-    cats <- intersect(c("Process", "Function", "Component", "KEGG", "RCTM"), unique(en$category))
+    say("enrichment categories returned: ", paste(sprintf("%s (%d)", names(table(en$category)), as.integer(table(en$category))), collapse = ", "))
+    cats <- intersect(c("Process", "Function", "Component", "KEGG", "RCTM", "WikiPathways"), unique(en$category))
+    if (!length(cats)) cats <- head(names(sort(table(en$category), decreasing = TRUE)), 5)      # fall back to whatever categories STRING returned
     say("enrichment: ", paste(sprintf("%s %d (FDR < 0.05: %d)", cats, vapply(cats, function(k) sum(en$category == k), 1L), vapply(cats, function(k) sum(en$category == k & en$fdr < 0.05), 1L)), collapse = " | "))
     tp <- en |> filter(category %in% cats) |> group_by(category) |> slice_min(fdr, n = TOP_TERMS, with_ties = FALSE) |> ungroup() |>
       mutate(category = factor(category, levels = cats), y = factor(paste(category, term), levels = rev(paste(category, term))), sigf = ifelse(fdr < 0.05, "FDR < 0.05", "FDR >= 0.05"))
-    nmv <- setNames(tp$description, as.character(tp$y))
-    p3 <- ggplot(tp, aes(-log10(fdr), y, fill = sigf)) + geom_col(width = 0.75) + geom_text(aes(label = number_of_genes), hjust = -0.3, size = 2.8, colour = INK) +
-      facet_grid(category ~ ., scales = "free_y", space = "free_y") + scale_y_discrete(labels = function(x) wrap(nmv[x])) + scale_fill_manual(values = c(`FDR < 0.05` = "#08519C", `FDR >= 0.05` = "#C6C6C6"), name = NULL) +
-      scale_x_continuous(expand = expansion(mult = c(0, 0.12))) + labs(title = sprintf("STRING functional enrichment: genes %s", DESC[[nm]]), subtitle = "top terms per category by FDR; number = genes in the term; background = all protein-coding genes tested", x = expression(-log[10](FDR)), y = NULL) +
-      theme_bw(base_size = 10) + theme(panel.grid.minor = element_blank(), panel.border = element_rect(colour = "grey70"), axis.text = element_text(colour = INK), strip.background = element_rect(fill = "grey95", colour = "grey70"),
-                                       strip.text = element_text(colour = INK, face = "bold"), plot.title = element_text(colour = INK, face = "bold"), plot.subtitle = element_text(colour = "grey35", size = 8.5), legend.position = "bottom")
-    save2(p3, "enrichment_top_terms", 10, 0.2 * nrow(tp) + 2.8)
+    if (nrow(tp)) {
+      nmv <- setNames(tp$description, as.character(tp$y))
+      p3 <- ggplot(tp, aes(-log10(fdr), y, fill = sigf)) + geom_col(width = 0.75) + geom_text(aes(label = number_of_genes), hjust = -0.3, size = 2.8, colour = INK) +
+        facet_grid(category ~ ., scales = "free_y", space = "free_y") + scale_y_discrete(labels = function(x) wrap(nmv[x])) + scale_fill_manual(values = c(`FDR < 0.05` = "#08519C", `FDR >= 0.05` = "#C6C6C6"), name = NULL) +
+        scale_x_continuous(expand = expansion(mult = c(0, 0.12))) + labs(title = sprintf("STRING functional enrichment: genes %s", DESC[[nm]]), subtitle = "top terms per category by FDR; number = genes in the term; background = all protein-coding genes tested", x = expression(-log[10](FDR)), y = NULL) +
+        theme_bw(base_size = 10) + theme(panel.grid.minor = element_blank(), panel.border = element_rect(colour = "grey70"), axis.text = element_text(colour = INK), strip.background = element_rect(fill = "grey95", colour = "grey70"),
+                                         strip.text = element_text(colour = INK, face = "bold"), plot.title = element_text(colour = INK, face = "bold"), plot.subtitle = element_text(colour = "grey35", size = 8.5), legend.position = "bottom")
+      save2(p3, "enrichment_top_terms", 10, 0.2 * nrow(tp) + 2.8)
+    } else say("no enrichment terms to draw for this set (see enrichment_all.csv)")
   }
 }
 say("done. Saved to: ", OUTR)
