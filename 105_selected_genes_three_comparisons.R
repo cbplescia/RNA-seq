@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # One vertical bar graph: for each of the genes below THREE bars side by side, left to right IFNB vs Mock (blue), EBOV vs Mock (dark green), IFNB+EBOV vs Mock (light green), genes in the order you list them (edit SETS):
-#   Npc1, Atp6v0c, Cerk, Cers1-6, Cert1, Gba1, Kdsr, Ugcg, B4galt5, Asah1, Pld3, Atp9a, Ifitm3, Srms, Axl, Lgmn, Ctsd, Ctsb
+#   Npc1, Atp6v0c, Axl, Cerk, Cers1, Cers3, Cers4, Cers5, Cers6, Cert1, Gba1, Kdsr, Ugcg, B4galt5, Asah1, Pld3, Atp9a, Ifitm3, Srms, Lgmn, Ctsd, Ctsb
 # Shrunk log2FC from DE_v2_*_annotated.csv, error bars +/- 1 lfcSE, stars = padj of each comparison against Mock (* < 0.05, ** < 0.01, *** < 0.001, ns). A dagger on a gene name marks baseMean < LOW_EXPR
 # (few reads, so the log2FC is less reliable); genes missing from the tables (removed by the pre-filter in 04, or a different symbol) are listed as "Not found". Mouse symbols are matched ignoring case;
 # old / alternative names are in ALIAS (Cers1-6 = Lass1-6, Gba1 = Gba, Cert1 = Col4a3bp).
@@ -9,7 +9,7 @@
 suppressPackageStartupMessages({ library(readr); library(dplyr); library(tidyr); library(ggplot2) })
 select <- dplyr::select; filter <- dplyr::filter
 
-SETS <- list(selected_genes = list(title = "Selected genes: IFNB, EBOV and IFNB+EBOV vs Mock", genes = c("Npc1", "Atp6v0c", "Cerk", "Cers1", "Cers2", "Cers3", "Cers4", "Cers5", "Cers6", "Cert1", "Gba1", "Kdsr", "Ugcg", "B4galt5", "Asah1", "Pld3", "Atp9a", "Ifitm3", "Srms", "Axl", "Lgmn", "Ctsd", "Ctsb")))
+SETS <- list(selected_genes = list(title = "Selected genes: IFNB, EBOV and IFNB+EBOV vs Mock", genes = c("Npc1", "Atp6v0c", "Axl", "Cerk", "Cers1", "Cers3", "Cers4", "Cers5", "Cers6", "Cert1", "Gba1", "Kdsr", "Ugcg", "B4galt5", "Asah1", "Pld3", "Atp9a", "Ifitm3", "Srms", "Lgmn", "Ctsd", "Ctsb")))
 ALIAS <- list(Cers1 = "Lass1", Cers2 = "Lass2", Cers3 = "Lass3", Cers4 = "Lass4", Cers5 = "Lass5", Cers6 = "Lass6", Gba1 = "Gba", Cert1 = "Col4a3bp")
 LOW_EXPR <- 50
 COMP <- c(IFNB_vs_Mock = "IFNB vs Mock", EBOV_vs_Mock = "EBOV vs Mock", IFNB_EBOV_vs_Mock = "IFNB+EBOV vs Mock"); CCOL <- c(`IFNB vs Mock` = "#2B6CB0", `EBOV vs Mock` = "#1B7837", `IFNB+EBOV vs Mock` = "#9BD08E")
