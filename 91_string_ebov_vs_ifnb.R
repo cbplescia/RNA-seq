@@ -79,11 +79,13 @@ for (nm in names(ups)) {
   }
 
   # --- network ---
-  ed <- sdb$get_interactions(hits$STRING_id) |> as_tibble() |> filter(combined_score >= STRING_SCORE, from != to) |> mutate(a = pmin(from, to), b = pmax(from, to)) |> distinct(a, b, .keep_all = TRUE) |> select(from = a, to = b, combined_score)
+  ed_all <- sdb$get_interactions(hits$STRING_id) |> as_tibble() |> filter(from != to) |> mutate(a = pmin(from, to), b = pmax(from, to)) |> distinct(a, b, .keep_all = TRUE) |> select(from = a, to = b, combined_score)
+  SC <- STRING_SCORE; ed <- ed_all |> filter(combined_score >= SC)
+  for (lower in c(400L, 150L)) if (nrow(ed) < 3 && SC > lower) { say(sprintf("only %d interactions at score >= %d - lowering the threshold to %d for this set", nrow(ed), SC, lower)); SC <- lower; ed <- ed_all |> filter(combined_score >= SC) }
   nmap <- hits |> select(STRING_id, gene_name, lfc = log2FoldChange)
   write_csv(ed |> left_join(nmap |> rename(from = STRING_id, gene_from = gene_name) |> select(from, gene_from), by = "from") |> left_join(nmap |> rename(to = STRING_id, gene_to = gene_name) |> select(to, gene_to), by = "to") |> arrange(desc(combined_score)),
             file.path(OUT, "interactions.csv"))
-  say(sprintf("%d interactions with combined score >= %d", nrow(ed), STRING_SCORE))
+  say(sprintf("%d interactions with combined score >= %d", nrow(ed), SC))
   if (nrow(ed) >= 3) {
     g <- igraph::graph_from_data_frame(ed, directed = FALSE, vertices = nmap |> filter(STRING_id %in% c(ed$from, ed$to)))
     igraph::E(g)$weight <- ed$combined_score / 1000
@@ -118,7 +120,7 @@ for (nm in names(ups)) {
     EDp <- ed |> left_join(V |> select(STRING_id, x, y), by = c("from" = "STRING_id")) |> rename(x1 = x, y1 = y) |> left_join(V |> select(STRING_id, x, y), by = c("to" = "STRING_id")) |> rename(x2 = x, y2 = y)
     ccol <- setNames(c(scales::hue_pal(l = 55)(length(levels(V$cluster)) - 1), "grey70")[seq_along(levels(V$cluster))], levels(V$cluster))
     lab <- V |> slice_max(deg, n = N_LAB, with_ties = FALSE)
-    ttl <- sprintf("STRING network of genes %s", DESC[[nm]]); sub <- sprintf("%d genes, %d interactions (combined score >= %d); node size = number of partners; %d genes have no interaction at this score", nrow(V), nrow(ed), STRING_SCORE, nrow(hits) - nrow(V))
+    ttl <- sprintf("STRING network of genes %s", DESC[[nm]]); sub <- sprintf("%d genes, %d interactions (combined score >= %d); node size = number of partners; %d genes have no interaction at this score", nrow(V), nrow(ed), SC, nrow(hits) - nrow(V))
     p1 <- ggplot() + geom_segment(data = EDp, aes(x = x1, y = y1, xend = x2, yend = y2, alpha = combined_score), colour = "grey55", linewidth = 0.3) + scale_alpha_continuous(range = c(0.2, 0.7), guide = "none") +
       geom_point(data = V, aes(x, y, size = deg, colour = cluster)) + scale_colour_manual(values = ccol, name = NULL, labels = function(x) vapply(x, function(z) if (z %in% cn$cluster) cn$lbl[cn$cluster == z] else z, "")) + scale_size_continuous(range = c(1, 7), guide = "none") +
       geom_text_repel(data = lab, aes(x, y, label = gene_name), size = 2.6, fontface = "italic", colour = INK, max.overlaps = Inf, min.segment.length = 0, segment.size = 0.2, segment.colour = "grey60", box.padding = 0.25, seed = 1) +

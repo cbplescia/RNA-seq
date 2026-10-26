@@ -10,7 +10,7 @@
 #   Classes with fewer than MIN_SET genes (default 15) are listed but not analysed. Background = every protein-coding gene tested in both comparisons. Needs STRINGdb and internet (mouse data cached in <project>/stringdb_cache).
 # For each analysed class it writes to requant_v2_outputs/figures_string_IFNB_vs_EBOV_responses/<class>/ (PNG + PDF): network_clusters (clusters named after their most specific enriched STRING term), network_log2FC,
 # enrichment_top_terms, and cluster_names.csv, interactions.csv, hubs.csv, clusters.csv, enrichment_all.csv, ppi_stats.csv, genes_in_set.csv; plus class_sizes.csv and gene_classes.csv in the parent folder.
-# Usage: Rscript 93_string_ifnb_vs_ebov_responses.R   (PROJ from 'source setup_session.sh';  LFC_CUT=0  MIN_SET=10  STRING_SCORE=400  STRING_VERSION=11.5 optional)
+# Usage: Rscript 93_string_ifnb_vs_ebov_responses.R   (PROJ from 'source setup_session.sh';  LFC_CUT=0  MIN_SET=10  CLASSES=IFNB_up_EBOV_down  STRING_SCORE=400  STRING_VERSION=11.5 optional)
 
 t0 <- Sys.time(); say <- function(...) { message(sprintf("[%5.1f min] ", as.numeric(difftime(Sys.time(), t0, units = "mins"))), ...); flush.console() }
 suppressPackageStartupMessages({ library(readr); library(dplyr); library(tidyr); library(ggplot2); library(ggrepel) })
@@ -51,6 +51,9 @@ cs <- tibble(class = CLS, description = DESC[CLS], n_genes = vapply(CLS, functio
 write_csv(cs, file.path(OUTR, "class_sizes.csv")); write_csv(d |> filter(class != "other") |> arrange(class) |> select(class, gene_id, gene_name, baseMean, lfc_B, padj_B, lfc_E, padj_E), file.path(OUTR, "gene_classes.csv"))
 say(sprintf("%d protein-coding genes tested in both comparisons (|log2FC| > %g, padj < %g)", nrow(d), LFC_CUT, PADJ_CUT)); print(as.data.frame(cs), row.names = FALSE)
 use <- cs$class[cs$analysed]; if (!length(use)) stop("No class has at least ", MIN_SET, " genes - try LFC_CUT=0 or MIN_SET=8")
+req <- trimws(strsplit(Sys.getenv("CLASSES"), ",")[[1]]); req <- req[nzchar(req)]               # e.g. CLASSES=IFNB_up_EBOV_down,EBOV_up_IFNB_down  (runs just these, down to 3 genes each)
+if (length(req)) { bad <- setdiff(req, CLS); if (length(bad)) stop("Unknown class: ", paste(bad, collapse = ", "), ". Choose from: ", paste(CLS, collapse = ", "))
+  use <- req[cs$n_genes[match(req, cs$class)] >= 3]; say("CLASSES requested: ", paste(sprintf("%s (%d genes)", req, cs$n_genes[match(req, cs$class)]), collapse = ", ")); if (!length(use)) stop("None of the requested classes has 3 or more genes - try LFC_CUT=0") }
 ups <- setNames(lapply(use, function(k) { g <- d |> filter(class == k); lf <- switch(k, shared_up = (g$lfc_B + g$lfc_E) / 2, shared_down = -(g$lfc_B + g$lfc_E) / 2, IFNB_up_EBOV_down = g$lfc_B, EBOV_up_IFNB_down = g$lfc_E,
                                                   IFNB_only_up = g$lfc_B, EBOV_only_up = g$lfc_E, IFNB_only_down = -g$lfc_B, EBOV_only_down = -g$lfc_E)
                                   list(all = d, up = g |> mutate(log2FoldChange = lf, padj = pmin(padj_B, padj_E)) |> select(gene_id, gene_name, baseMean, log2FoldChange, padj)) }), use)
@@ -75,11 +78,13 @@ for (nm in names(ups)) {
   }
 
   # --- network ---
-  ed <- sdb$get_interactions(hits$STRING_id) |> as_tibble() |> filter(combined_score >= STRING_SCORE, from != to) |> mutate(a = pmin(from, to), b = pmax(from, to)) |> distinct(a, b, .keep_all = TRUE) |> select(from = a, to = b, combined_score)
+  ed_all <- sdb$get_interactions(hits$STRING_id) |> as_tibble() |> filter(from != to) |> mutate(a = pmin(from, to), b = pmax(from, to)) |> distinct(a, b, .keep_all = TRUE) |> select(from = a, to = b, combined_score)
+  SC <- STRING_SCORE; ed <- ed_all |> filter(combined_score >= SC)
+  for (lower in c(400L, 150L)) if (nrow(ed) < 3 && SC > lower) { say(sprintf("only %d interactions at score >= %d - lowering the threshold to %d for this set", nrow(ed), SC, lower)); SC <- lower; ed <- ed_all |> filter(combined_score >= SC) }
   nmap <- hits |> select(STRING_id, gene_name, lfc = log2FoldChange)
   write_csv(ed |> left_join(nmap |> rename(from = STRING_id, gene_from = gene_name) |> select(from, gene_from), by = "from") |> left_join(nmap |> rename(to = STRING_id, gene_to = gene_name) |> select(to, gene_to), by = "to") |> arrange(desc(combined_score)),
             file.path(OUT, "interactions.csv"))
-  say(sprintf("%d interactions with combined score >= %d", nrow(ed), STRING_SCORE))
+  say(sprintf("%d interactions with combined score >= %d", nrow(ed), SC))
   if (nrow(ed) >= 3) {
     g <- igraph::graph_from_data_frame(ed, directed = FALSE, vertices = nmap |> filter(STRING_id %in% c(ed$from, ed$to)))
     igraph::E(g)$weight <- ed$combined_score / 1000
@@ -114,7 +119,7 @@ for (nm in names(ups)) {
     EDp <- ed |> left_join(V |> select(STRING_id, x, y), by = c("from" = "STRING_id")) |> rename(x1 = x, y1 = y) |> left_join(V |> select(STRING_id, x, y), by = c("to" = "STRING_id")) |> rename(x2 = x, y2 = y)
     ccol <- setNames(c(scales::hue_pal(l = 55)(length(levels(V$cluster)) - 1), "grey70")[seq_along(levels(V$cluster))], levels(V$cluster))
     lab <- V |> slice_max(deg, n = N_LAB, with_ties = FALSE)
-    ttl <- sprintf("STRING network of genes %s", DESC[[nm]]); sub <- sprintf("%d genes, %d interactions (combined score >= %d); node size = number of partners; %d genes have no interaction at this score", nrow(V), nrow(ed), STRING_SCORE, nrow(hits) - nrow(V))
+    ttl <- sprintf("STRING network of genes %s", DESC[[nm]]); sub <- sprintf("%d genes, %d interactions (combined score >= %d); node size = number of partners; %d genes have no interaction at this score", nrow(V), nrow(ed), SC, nrow(hits) - nrow(V))
     p1 <- ggplot() + geom_segment(data = EDp, aes(x = x1, y = y1, xend = x2, yend = y2, alpha = combined_score), colour = "grey55", linewidth = 0.3) + scale_alpha_continuous(range = c(0.2, 0.7), guide = "none") +
       geom_point(data = V, aes(x, y, size = deg, colour = cluster)) + scale_colour_manual(values = ccol, name = NULL, labels = function(x) vapply(x, function(z) if (z %in% cn$cluster) cn$lbl[cn$cluster == z] else z, "")) + scale_size_continuous(range = c(1, 7), guide = "none") +
       geom_text_repel(data = lab, aes(x, y, label = gene_name), size = 2.6, fontface = "italic", colour = INK, max.overlaps = Inf, min.segment.length = 0, segment.size = 0.2, segment.colour = "grey60", box.padding = 0.25, seed = 1) +
