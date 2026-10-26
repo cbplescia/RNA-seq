@@ -28,11 +28,24 @@ OUT <- file.path(RNA, "figures_regulators"); dir.create(OUT, showWarnings = FALS
 cache <- file.path(PROJ, "stringdb_cache"); dir.create(cache, showWarnings = FALSE)
 options(timeout = 900)
 stars <- function(p) ifelse(is.na(p), "", ifelse(p < 0.001, "***", ifelse(p < 0.01, "**", ifelse(p < 0.05, "*", "ns"))))
-getf <- function(sub, name) { f <- file.path(cache, name); if (!file.exists(f)) { message("downloading ", name); download.file(sprintf("https://stringdb-downloads.org/download/%s.v%s/%s", sub, VER, name), f, mode = "wb", quiet = TRUE) }; f }
+getf <- function(sub, fmt, vers) {                                   # tries each version and both STRING download hosts; ignores 404 stubs
+  for (v in vers) for (h in c("stringdb-downloads.org", "stringdb-static.org")) {
+    nm <- sprintf(fmt, v); f <- file.path(cache, nm)
+    if (file.exists(f) && file.size(f) > 1000) return(list(file = f, version = v))
+    ok <- tryCatch({ suppressWarnings(download.file(sprintf("https://%s/download/%s.v%s/%s", h, sub, v, nm), f, mode = "wb", quiet = TRUE)); file.exists(f) && file.size(f) > 1000 }, error = function(e) FALSE)
+    if (isTRUE(ok)) { message("downloaded ", nm, " from ", h); return(list(file = f, version = v)) } else if (file.exists(f)) file.remove(f)
+  }
+  NULL
+}
 
 # ---- STRING files ----
-inf <- read_tsv(getf("protein.info", sprintf("10090.protein.info.v%s.txt.gz", VER)), show_col_types = FALSE, progress = FALSE); names(inf)[1:2] <- c("id", "name")
-act <- read_tsv(getf("protein.actions", sprintf("10090.protein.actions.v%s.txt.gz", VER)), show_col_types = FALSE, progress = FALSE)
+ai <- getf("protein.actions", "10090.protein.actions.v%s.txt.gz", unique(c(VER, "11.5", "11.0")))
+if (is.null(ai)) stop("Could not download the STRING actions file for mouse (tried versions ", paste(unique(c(VER, "11.5", "11.0")), collapse = ", "), "). Download 10090.protein.actions.v11.5.txt.gz from https://string-db.org/cgi/download (organism: Mus musculus) and put it in ", cache, ", then rerun.")
+message("using the STRING actions file of version ", ai$version)
+ii <- getf("protein.info", "10090.protein.info.v%s.txt.gz", unique(c(ai$version, VER)))
+if (is.null(ii)) stop("Could not get the STRING protein info file")
+inf <- read_tsv(ii$file, show_col_types = FALSE, progress = FALSE); names(inf)[1:2] <- c("id", "name")
+act <- read_tsv(ai$file, show_col_types = FALSE, progress = FALSE)
 names(act) <- sub("^#", "", names(act)); act <- act |> mutate(across(c(is_directional, a_is_acting), ~ as.character(.x) %in% c("t", "TRUE", "true", "1")))
 message(sprintf("STRING actions: %d rows; modes: %s", nrow(act), paste(names(table(act$mode)), as.integer(table(act$mode)), sep = "=", collapse = ", ")))
 modes <- c("activation", "inhibition", if (INCL_EXPR) "expression")
