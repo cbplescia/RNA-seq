@@ -15,6 +15,7 @@ t0 <- Sys.time(); say <- function(...) { message(sprintf("[%5.1f min] ", as.nume
 suppressPackageStartupMessages({ library(readr); library(dplyr); library(tidyr); library(ggplot2); library(ggrepel); library(DESeq2) })
 for (pkg in c("STRINGdb", "igraph")) if (!requireNamespace(pkg, quietly = TRUE)) stop("Install ", pkg, " (conda install -c conda-forge -c bioconda ", if (pkg == "igraph") "r-igraph" else "bioconductor-stringdb", ")")
 select <- dplyr::select; filter <- dplyr::filter; slice <- dplyr::slice; rename <- dplyr::rename
+count <- dplyr::count; mutate <- dplyr::mutate; summarise <- dplyr::summarise; arrange <- dplyr::arrange; desc <- dplyr::desc   # STRINGdb loads plyr, whose versions of these verbs would otherwise take over
 
 PADJ_CUT <- 0.05; LFC_CUT <- as.numeric(Sys.getenv("LFC_CUT", unset = "1")); STRING_SCORE <- as.integer(Sys.getenv("STRING_SCORE", unset = "700")); STRING_VERSION <- Sys.getenv("STRING_VERSION", unset = "12.0")
 N_LAB <- 40; N_CLUST_COL <- 8; TOP_TERMS <- 12; MIN_CLUSTER <- 3
