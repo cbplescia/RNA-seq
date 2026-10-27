@@ -8,7 +8,7 @@ For every variant (positions where the SAME alternative base is called, per 113)
 Figures per construct gene (shared_ifn/ifn_variants_<gene>.png/.pdf): protein lollipop (x = residue, y = carriers among IFN samples, labelled with the residue change, e.g. V34I) and a heatmap variants x samples (columns grouped untreated | IFNB | IFNG;
 tile = variant frequency, dot = covered but not called, grey = too little coverage).  Plus ifn_variants_overview (counts per gene) and ifn_specific_variants.tsv (all tested variants: carriers, coverage, frequencies, Fisher p).
 CAUTION: a variant seen only in IFN samples can reflect IFN biology (e.g. ADAR/APOBEC editing, selection), different virus/construct batches, or simple chance with few samples; check the carrier counts and that the IFN carriers are not a single replicate set.
-Options (environment): VIRUS=EBOV (only the samples infected with that virus, e.g. EBOV: untreated EBOV vs IFNB+EBOV vs IFNG+EBOV; MARV etc. are ignored; output goes to shared_ifn_EBOV/)  ALL_SHARED=1 (also show variants shared among the IFN samples that are
+Options (environment): FOCUS=model_GP:104 (show just these residues - gene:residue, comma-separated - even if they fail every filter below, e.g. carried by one sample only; combine with VIRUS=EBOV MIN_CARRIERS=1)  VIRUS=EBOV (only the samples infected with that virus, e.g. EBOV: untreated EBOV vs IFNB+EBOV vs IFNG+EBOV; MARV etc. are ignored; output goes to shared_ifn_EBOV/)  ALL_SHARED=1 (also show variants shared among the IFN samples that are
   ALSO present in untreated samples, marked with open squares)  MIN_DEPTH=30 MIN_CARRIERS=2 MIN_REF=2 P_CUT=0.05 SHOW_ENRICHED=1 MAX_ROWS=40 PROJ=...        Usage: python 115_construct_ifn_specific_variants.py     (numpy, pandas, matplotlib)
 """
 import os, sys, re, math
@@ -20,7 +20,8 @@ from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
 
 PROJ = os.environ.get("PROJ", os.path.join(os.path.expanduser("~"), "Documents/aviti_rnaseq/2025/aviti/20251009-100725_Maury_25161_WivfFacICOTHFAUJwSPeHBEFfCfNtCRpUSgVGUkz/results/Maury_25161"))
-RES = os.path.join(PROJ, "construct_variants", "results"); VIRUS = os.environ.get("VIRUS", "").strip(); ALL_SHARED = os.environ.get("ALL_SHARED", "0") == "1"
+RES = os.path.join(PROJ, "construct_variants", "results"); VIRUS = os.environ.get("VIRUS", "").strip(); FOCUS = [t.strip() for t in os.environ.get("FOCUS", "").split(",") if t.strip()]     # FOCUS=model_GP:104,model_NP:50 -> show only these residues, whatever the filters say
+ALL_SHARED = os.environ.get("ALL_SHARED", "0") == "1"
 OUT = os.path.join(RES, "shared_ifn" + ("_" + VIRUS if VIRUS else "")); os.makedirs(OUT, exist_ok=True)
 MIN_DEPTH = int(os.environ.get("MIN_DEPTH", "30")); MIN_CARRIERS = int(os.environ.get("MIN_CARRIERS", "2")); MIN_REF = int(os.environ.get("MIN_REF", "2")); P_CUT = float(os.environ.get("P_CUT", "0.05"))
 SHOW_ENRICHED = os.environ.get("SHOW_ENRICHED", "1") == "1"; MAX_ROWS = int(os.environ.get("MAX_ROWS", "40")); INK = "#1F2933"
@@ -80,7 +81,8 @@ for _, r in V.iterrows():
 T = pd.DataFrame(rows)
 if not len(T): sys.exit("No variants were called in any IFN sample with coverage")
 T.sort_values(["feature", "pos"]).to_csv(os.path.join(OUT, "ifn_specific_variants.tsv"), sep="\t", index=False, float_format="%.4g")
-S = T[T.ifn_class.isin(["IFN-specific"] + (["IFN-enriched"] if SHOW_ENRICHED else []) + (["IFN-shared (also untreated)"] if ALL_SHARED else []))]
+focus_ok = lambda r: ("%s:%d" % (r.feature, r.x)) in FOCUS
+S = T[T.apply(focus_ok, axis=1)] if FOCUS else T[T.ifn_class.isin(["IFN-specific"] + (["IFN-enriched"] if SHOW_ENRICHED else []) + (["IFN-shared (also untreated)"] if ALL_SHARED else []))]
 print("tested %d variants called in IFN samples; IFN-specific: %d, IFN-enriched: %d, shared by >= %d IFN samples but also in untreated: %d" % (len(T), (T.ifn_class == "IFN-specific").sum(), (T.ifn_class == "IFN-enriched").sum(), MIN_CARRIERS, (T.ifn_class == "IFN-shared (also untreated)").sum()))
 for f in refs: print("  %-24s specific %d  enriched %d" % (f, ((T.feature == f) & (T.ifn_class == "IFN-specific")).sum(), ((T.feature == f) & (T.ifn_class == "IFN-enriched")).sum()))
 def style(ax): ax.tick_params(colors=INK, labelsize=8); [sp.set_color("#9AA5B1") for sp in ax.spines.values()]
@@ -105,7 +107,7 @@ for f, seq in refs.items():
             lvl = k % 3; a1.annotate(r.label, (r.x, r.IFN_carriers), xytext=(0, 7 + 7 * lvl), textcoords="offset points", ha="center", fontsize=6.5, color=INK, arrowprops=dict(arrowstyle="-", lw=0.3, color="#9AA5B1") if lvl else None)
         nI = max(1, sum(1 for s in cs if ifn_class(s) != "none")); a1.set_xlim(0, L + 1); a1.set_ylim(0, max(nI, dp.IFN_carriers.max()) * 1.6); a1.set_ylabel("IFN samples carrying the variant", fontsize=8, color=INK)
         a1.set_xlabel("%s number in %s  (%d %ss)" % (unit, f, L, unit), fontsize=8, color=INK); style(a1)
-        h = [Patch(color=c, label=t) for t, c in TAGC.items() if (dp.ifn_tag == t).any()] + [Line2D([], [], marker="o", color="grey", ls="", label="IFN-specific (absent from untreated)"), Line2D([], [], marker="D", markerfacecolor="white", color="grey", ls="", label="IFN-enriched (Fisher p < %.2g)" % P_CUT)] + ([Line2D([], [], marker="s", markerfacecolor="white", color="grey", ls="", label="shared by IFN samples, also in untreated")] if (dp.ifn_class == "IFN-shared (also untreated)").any() else [])
+        h = [Patch(color=c, label=t) for t, c in TAGC.items() if (dp.ifn_tag == t).any()] + [Line2D([], [], marker="o", color="grey", ls="", label="IFN-specific (absent from untreated)"), Line2D([], [], marker="D", markerfacecolor="white", color="grey", ls="", label="IFN-enriched (Fisher p < %.2g)" % P_CUT)] + ([Line2D([], [], marker="s", markerfacecolor="white", color="grey", ls="", label="shared by IFN samples, also in untreated")] if (dp.ifn_class == "IFN-shared (also untreated)").any() else []) + ([Line2D([], [], marker="s", markerfacecolor="white", color="grey", ls="", label="focus residue (fails the specificity filters)")] if (dp.ifn_class == "").any() else [])
         a1.legend(handles=h, fontsize=6.5, frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=3); a1.yaxis.set_major_locator(plt.matplotlib.ticker.MaxNLocator(integer=True))
         a1.set_title("%s%s: variants shared by IFNB / IFNG samples%s" % (f, " (%s only)" % VIRUS if VIRUS else "", "  (page %d of %d)" % (pi + 1, len(pages)) if len(pages) > 1 else ""), fontsize=10, color=INK, fontweight="bold", loc="left")
         M = np.full((len(dp), len(cs)), np.nan); C = np.zeros((len(dp), len(cs)), dtype=bool)
