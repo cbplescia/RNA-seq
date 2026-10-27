@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Heatmap of the EBOV amino-acid changes (from 117_ebov_aa_mutations_ifn.py): the untreated EBOV samples are GREY (their own frequency printed in the tile), the IFNB+EBOV and IFNG+EBOV samples are coloured by their CHANGE from the untreated EBOV mean
-(red = more abundant than untreated EBOV, blue = less; change = frequency in the sample - mean frequency of the untreated EBOV samples, in percentage points; the number in the tile is that change).
+(red = more abundant than untreated EBOV, blue = less, GREY = no change - the same grey as the untreated tiles; change = frequency in the sample - mean frequency of the untreated EBOV samples, in percentage points; the number in the tile is that change).
 One row per amino-acid change (gene + residue change), rows grouped by gene; blank/hatched = sample has < MIN_DEPTH reads there.  Colour scale is symmetric and compressive (symlog), so a +30 point change and a +1 point change can be seen together.
 Reads construct_variants/results/ebov_aa/ebov_aa_mutations.tsv (run 117 first).   Writes ebov_aa_heatmap_vs_untreated_pN.png/.pdf (all genes, paged), ebov_aa_heatmap_<gene>.png/.pdf, and ebov_aa_delta_table.tsv in the same folder.
 Options (environment): AVERAGE=1 (average the replicates of each condition first: three columns, EBOV | IFNB+EBOV | IFNG+EBOV; mean frequency of the covered replicates; files are named ebov_aa_heatmap_mean_*)  MIN_DELTA=0 (keep rows where some IFN sample differs from untreated by >= this many percentage points; e.g. MIN_DELTA=2)  MAX_ROWS=40  GENES=model_GP,model_NP (only these)  SORT=position|delta  PER_GENE=1  PROJ=...
@@ -37,7 +37,8 @@ T["gene"] = T.feature.str.replace("model_", "", regex=False)
 T = T.sort_values(["feature", "residue"]) if SORT == "position" else T.assign(_s=T[["mean_delta_IFNB", "mean_delta_IFNG"]].mean(axis=1)).sort_values(["feature", "_s"], ascending=[True, False])
 T.drop(columns=[c for c in ["_s"] if c in T]).to_csv(os.path.join(OUT, "ebov_aa_delta_table.tsv"), sep="\t", index=False, float_format="%.4g")
 Dall = np.array([T["delta_" + s].values for s in samples]).T; lim = max(5.0, float(np.nanpercentile(np.abs(Dall[np.isfinite(Dall)]), 99))) if np.isfinite(Dall).any() else 5.0
-norm = SymLogNorm(linthresh=1.0, linscale=0.8, vmin=-lim, vmax=lim, base=10); cm = plt.get_cmap("RdBu_r").copy(); cm.set_bad((0, 0, 0, 0))
+norm = SymLogNorm(linthresh=1.0, linscale=0.8, vmin=-lim, vmax=lim, base=10); GREY = "#C9CDD3"      # same grey as the untreated tiles: no change from untreated = grey
+cm = matplotlib.colors.LinearSegmentedColormap.from_list("blue_grey_red", ["#2166AC", "#92C5DE", GREY, "#F4A582", "#B2182B"]); cm.set_bad((0, 0, 0, 0))
 NAME = {"Untreated": "EBOV", "IFNB": "IFNB+EBOV", "IFNG": "IFNG+EBOV"}
 def columns(d):
     """-> labels, groups, Vm (frequency %), Dm (change from untreated mean, points; NaN for untreated columns)"""
@@ -55,7 +56,7 @@ def draw(d, name, title):
     fig = plt.figure(figsize=(max(7, (1.1 if AVERAGE else 0.55) * nc + 6.5), 1.7 + 0.27 * n + 1.5)); gs = fig.add_gridspec(1, 3, width_ratios=[max(3.2, (1.1 if AVERAGE else 0.55) * nc), 2.6, 0.25], wspace=0.04)
     ax = fig.add_subplot(gs[0, 0]); tx = fig.add_subplot(gs[0, 1]); cax = fig.add_subplot(gs[0, 2])
     G = np.full(Dm.shape, np.nan); G[:, [j for j, g in enumerate(groups) if g == "Untreated"]] = 1.0
-    ax.imshow(np.ma.masked_invalid(G), aspect="auto", cmap=plt.matplotlib.colors.ListedColormap(["#C9CDD3"]), vmin=0, vmax=1, interpolation="nearest")
+    ax.imshow(np.ma.masked_invalid(G), aspect="auto", cmap=plt.matplotlib.colors.ListedColormap([GREY]), vmin=0, vmax=1, interpolation="nearest")
     im = ax.imshow(np.ma.masked_invalid(Dm), aspect="auto", cmap=cm, norm=norm, interpolation="nearest")
     for i in range(n):
         for j in range(nc):
