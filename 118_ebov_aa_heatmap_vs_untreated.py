@@ -3,7 +3,7 @@
 (red = more abundant than untreated EBOV, blue = less, GREY = no change - the same grey as the untreated tiles; change = frequency in the sample - mean frequency of the untreated EBOV samples, in percentage points; the number in the tile is that change).
 One row per amino-acid change (gene + residue change), rows grouped by gene; blank/hatched = sample has < MIN_DEPTH reads there.  Colour scale is symmetric and compressive (symlog), so a +30 point change and a +1 point change can be seen together.
 Reads construct_variants/results/ebov_aa/ebov_aa_mutations.tsv (run 117 first).   Writes ebov_aa_heatmap_vs_untreated_pN.png/.pdf (all genes, paged), ebov_aa_heatmap_<gene>.png/.pdf, and ebov_aa_delta_table.tsv in the same folder.
-Options (environment): AVERAGE=1 (average the replicates of each condition first: three columns, EBOV | IFNB+EBOV | IFNG+EBOV; mean frequency of the covered replicates; files are named ebov_aa_heatmap_mean_*)  MIN_DELTA=0 (keep rows where some IFN sample differs from untreated by >= this many percentage points; e.g. MIN_DELTA=2)  MAX_ROWS=40  GENES=model_GP,model_NP (only these)  SORT=position|delta  PER_GENE=1  PROJ=...
+Options (environment): (default) replicates of each condition are AVERAGED: three columns, EBOV | IFNB+EBOV | IFNG+EBOV, mean frequency of the covered replicates, files ebov_aa_heatmap_mean_*;  REPLICATES=1 draws every replicate separately instead (files ebov_aa_heatmap_*)  MIN_DELTA=0 (keep rows where some IFN sample differs from untreated by >= this many percentage points; e.g. MIN_DELTA=2)  MAX_ROWS=40  GENES=model_GP,model_NP (only these)  SORT=position|delta  PER_GENE=1  PROJ=...
 Usage: python 118_ebov_aa_heatmap_vs_untreated.py     (numpy, pandas, matplotlib)
 """
 import os, sys
@@ -15,7 +15,7 @@ from matplotlib.patches import Patch
 
 PROJ = os.environ.get("PROJ", os.path.join(os.path.expanduser("~"), "Documents/aviti_rnaseq/2025/aviti/20251009-100725_Maury_25161_WivfFacICOTHFAUJwSPeHBEFfCfNtCRpUSgVGUkz/results/Maury_25161"))
 OUT = os.path.join(PROJ, "construct_variants", "results", "ebov_aa")
-MIN_DELTA = float(os.environ.get("MIN_DELTA", "0")); MAX_ROWS = int(os.environ.get("MAX_ROWS", "40")); SORT = os.environ.get("SORT", "position"); PER_GENE = os.environ.get("PER_GENE", "1") == "1"; AVERAGE = os.environ.get("AVERAGE", "0") == "1"; GENES = [g.strip() for g in os.environ.get("GENES", "").split(",") if g.strip()]
+MIN_DELTA = float(os.environ.get("MIN_DELTA", "0")); MAX_ROWS = int(os.environ.get("MAX_ROWS", "40")); SORT = os.environ.get("SORT", "position"); PER_GENE = os.environ.get("PER_GENE", "1") == "1"; AVERAGE = os.environ.get("REPLICATES", "0") != "1"; GENES = [g.strip() for g in os.environ.get("GENES", "").split(",") if g.strip()]
 INK = "#1F2933"; GC = {"Untreated": "#6B7280", "IFNB": "#2B6CB0", "IFNG": "#D97706"}
 tp = os.path.join(OUT, "ebov_aa_mutations.tsv")
 if not os.path.exists(tp): sys.exit("Missing %s - run 117_ebov_aa_mutations_ifn.py first" % tp)
