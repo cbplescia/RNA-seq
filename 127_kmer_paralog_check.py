@@ -30,19 +30,35 @@ def records():
                 hdr, seq = line[1:].strip(), []
             else: seq.append(line.strip())
     if hdr is not None: yield hdr, "".join(seq)
+def nov(x): return re.sub(r"\.\d+$", "", x)
+import csv
+SYM = {}                                                       # gene id (no version) -> symbol, from your annotated DE table
+de = os.path.join(PROJ, "requant_v2_outputs", "DE_v2_EBOV_vs_Mock_annotated.csv")
+if os.path.exists(de):
+    for r in csv.DictReader(open(de)):
+        if r.get("gene_name"): SYM[nov(r["gene_id"])] = r["gene_name"]
+TX2G = {}
+for tf in (os.path.join(PROJ, "tx2gene_GRCm39.109_plus_model.tsv"), os.path.join(PROJ, "tx2gene_mouse_from_fasta.tsv")):
+    if os.path.exists(tf):
+        for i, l in enumerate(open(tf)):
+            f = l.rstrip("\n").split("\t")
+            if i and len(f) >= 2: TX2G.setdefault(nov(f[0]), nov(f[1]))
 def meta(h):
-    g = re.search(r"gene_symbol:(\S+)", h); gi = re.search(r"gene:(ENSMUSG\d+)", h); bt = re.search(r"gene_biotype:(\S+)", h)
-    return (g.group(1) if g else (gi.group(1) if gi else "?")), (gi.group(1) if gi else "?"), (bt.group(1) if bt else "")
+    g = re.search(r"gene_symbol:(\S+)", h); gi = re.search(r"(ENSMUSG\d+)", h); bt = re.search(r"gene_biotype:(\S+)", h)
+    gid = gi.group(1) if gi else TX2G.get(nov(h.split()[0]), "?")
+    sym = g.group(1) if g else SYM.get(gid, gid)
+    return sym, gid, (bt.group(1) if bt else "")
+WANT = {g for g, n in SYM.items() if n.lower() == GENE.lower()}
 mine, own_ids = [], set()
 for h, s in records():
     sym, gid, bt = meta(h)
-    if sym.lower() == GENE.lower(): mine.append(kmers(s)); own_ids.add(gid)
-if not mine: sys.exit("No transcripts with gene_symbol:%s found in %s (check the FASTA header format)" % (GENE, TX_FA))
+    if sym.lower() == GENE.lower() or gid in WANT: mine.append(kmers(s)); own_ids.add(gid)
+if not mine: sys.exit("No transcripts of %s found in %s (check the FASTA header format / that %s is in the DE table)" % (GENE, TX_FA, GENE))
 top = np.unique(np.concatenate(mine)); print("%s: %d transcripts, %d distinct %d-mers" % (GENE, len(mine), len(top), K), flush=True)
 hits = {}; n = 0
 for h, s in records():
     sym, gid, bt = meta(h)
-    if gid in own_ids or sym.lower() == GENE.lower(): continue
+    if gid in own_ids or gid in WANT or sym.lower() == GENE.lower(): continue
     n += 1
     km = kmers(s)
     if not len(km): continue

@@ -29,7 +29,7 @@ theme_t <- theme_bw(base_size = 11) + theme(panel.grid.minor = element_blank(), 
 glab <- function(g) ifelse(g %in% names(LAB), LAB[g], g)
 stars <- function(p) ifelse(is.na(p), "", ifelse(p < 0.001, "***", ifelse(p < 0.01, "**", ifelse(p < 0.05, "*", "ns"))))
 
-dds <- readRDS(file.path(RNA, "dds_v2_decoyAware_hostNormalised.rds")); vsd <- readRDS(file.path(RNA, "vsd_v2.rds")); sf <- sizeFactors(dds)
+dds <- readRDS(file.path(RNA, "dds_v2_decoyAware_hostNormalised.rds")); vsd <- readRDS(file.path(RNA, "vsd_v2.rds"))
 cd <- as.data.frame(colData(dds)); cd$sample_id <- rownames(cd); cd$group <- as.character(cd$group); smp <- cd$sample_id
 de0 <- read_csv(file.path(RNA, "DE_v2_EBOV_vs_Mock_annotated.csv"), show_col_types = FALSE)
 gid <- de0$gene_id[tolower(de0$gene_name) == tolower(GENE)][1]; if (is.na(gid)) stop(GENE, " is not in the DE table (removed by the pre-filter in 04?)")
@@ -37,6 +37,10 @@ message(GENE, " = ", gid)
 cf <- file.path(RNA, "construct_features_per_sample.csv"); viral_ids <- if (file.exists(cf)) unique(read_csv(cf, show_col_types = FALSE)$feature) else character(0)
 ncts <- counts(dds); vir <- intersect(viral_ids, rownames(ncts)); viral_reads <- if (length(vir)) colSums(ncts[vir, , drop = FALSE]) else rep(0, ncol(ncts)); host_reads <- colSums(ncts[setdiff(rownames(ncts), vir), , drop = FALSE])
 viral_frac <- viral_reads / (viral_reads + host_reads)
+# per-sample size factor. A tximport-based DESeq2 object stores normalizationFactors (a gene x sample matrix incl. transcript-length offsets) and has NO sizeFactors, so derive one per sample from it
+sf <- sizeFactors(dds)
+if (is.null(sf)) { nf <- normalizationFactors(dds); if (is.null(nf)) stop("the DESeq2 object has neither sizeFactors nor normalizationFactors"); sf <- exp(colMeans(log(nf[setdiff(rownames(nf), vir), , drop = FALSE]))); sf <- sf / exp(mean(log(sf))); message("size factors taken from the geometric mean of the normalizationFactors (tximport object)") }
+names(sf) <- colnames(dds)
 
 # ================= 1  transcript level =================
 tx2gene <- read_tsv(file.path(PROJ, "tx2gene_GRCm39.109_plus_model.tsv"), show_col_types = FALSE, progress = FALSE); nov <- function(x) sub("\\..*$", "", x)
