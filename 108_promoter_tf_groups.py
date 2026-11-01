@@ -19,7 +19,8 @@ Usage:  python 108_promoter_tf_groups.py     (environment options: UP=1500 DOWN=
 """
 import os, re, sys, csv, gzip, urllib.request, random
 import numpy as np
-from scipy.stats import fisher_exact
+try: from scipy.stats import fisher_exact
+except ImportError: fisher_exact = None       # only the group comparison in main() needs scipy; 125_top1_shared_tf_genes.py imports this file without it
 
 PROJ = os.environ.get("PROJ", os.path.join(os.path.expanduser("~"), "Documents/aviti_rnaseq/2025/aviti/20251009-100725_Maury_25161_WivfFacICOTHFAUJwSPeHBEFfCfNtCRpUSgVGUkz/results/Maury_25161"))
 RNA = os.path.join(PROJ, "requant_v2_outputs")
@@ -143,6 +144,7 @@ def bh(p):
     return q
 
 def main():
+    if fisher_exact is None: sys.exit("This script needs scipy: conda install -c conda-forge scipy")
     import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
     gf = os.path.join(RNA, "figures_ifnb_ebov_retention", "ifnb_induced_groups.csv")
     if not os.path.exists(gf): sys.exit(f"Run 107_ifnb_induced_gene_groups.R first (missing {gf})")
