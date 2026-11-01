@@ -1,9 +1,9 @@
 #!/usr/bin/env Rscript
-# Heatmap of the top TOP_N (default 50) UPREGULATED protein-coding genes in IFNG (IFNY) vs Mock, rows ordered by log2FC (highest first), columns Untreated 1-3 | IFNG 1-3 (every replicate), not clustered. Two versions:
+# Heatmap of the top TOP_N (default 50) UPREGULATED protein-coding genes in IFNG (IFNY) vs Mock, rows ordered by log2FC (highest first), columns Untreated | IFNG | EBOV | IFNG+EBOV (every replicate; EBOV groups via EXTRA), not clustered. Two versions:
 #   heatmap_top50_IFNG_vs_Mock_rowZ        row z-score of VST expression (blue below the gene's mean across the 6 samples, red above)
 #   heatmap_top50_IFNG_vs_Mock_mockgrey    each replicate's VST minus the gene's Untreated mean: Mock level = light grey, higher = red, lower = blue
 # Candidates: protein-coding, padj < PADJ_CUT (0.05) and shrunk log2FC > LFC_CUT (1). Ranked by the largest shrunk log2FC (default TOP_BY=lfc) or by smallest padj (TOP_BY=padj). Rows are genes (gene-level counts, not individual transcript isoforms).
-# Env: TOP_N (50), TOP_BY (lfc|padj), LFC_CUT, PADJ_CUT, CONTRAST (default IFNY_vs_Mock) and GROUP (default IFNY_Mock; the treated group name in the VST object), e.g. CONTRAST=IFNB_vs_Mock GROUP=IFNB_Mock for IFNB.
+# Env: EXTRA (default Mock_EBOV,IFNY_EBOV = EBOV and IFNG+EBOV columns added after Untreated and IFNG; EXTRA=none for the two-group version; the genes are always the top IFNG-vs-Mock ones), TOP_N (50), TOP_BY (lfc|padj), LFC_CUT, PADJ_CUT, CONTRAST (default IFNY_vs_Mock) and GROUP (default IFNY_Mock; the treated group name in the VST object), e.g. CONTRAST=IFNB_vs_Mock GROUP=IFNB_Mock for IFNB.
 # Reads DE_v2_<CONTRAST>_annotated.csv and vsd_v2.rds. Writes to requant_v2_outputs/figures_top_up_<name>/ (PNG + PDF) plus heatmap_top50_genes.csv.   Usage: Rscript 122_ifng_top_up_heatmap.R   (PROJ from 'source setup_session.sh')
 
 suppressPackageStartupMessages({ library(readr); library(dplyr); library(pheatmap); library(DESeq2); library(grid) })
@@ -11,7 +11,10 @@ select <- dplyr::select; filter <- dplyr::filter
 
 TOP_N <- as.integer(Sys.getenv("TOP_N", "50")); TOP_BY <- Sys.getenv("TOP_BY", "lfc"); PADJ_CUT <- as.numeric(Sys.getenv("PADJ_CUT", "0.05")); LFC_CUT <- as.numeric(Sys.getenv("LFC_CUT", "1")); CAP_Q <- 0.98
 CONTRAST <- Sys.getenv("CONTRAST", "IFNY_vs_Mock"); GROUP <- Sys.getenv("GROUP", "IFNY_Mock"); NAME <- sub("_vs_Mock", "", CONTRAST); NAME <- ifelse(NAME == "IFNY", "IFNG", NAME); BLUE <- "#2B6CB0"
-G <- setNames(c("Mock_Mock", GROUP), c("Untreated", NAME))
+LAB <- c(Mock_EBOV = "EBOV", IFNY_EBOV = "IFNG+EBOV", IFNB_EBOV = "IFNB+EBOV", Mock_MARV = "MARV", IFNY_MARV = "IFNG+MARV", IFNB_MARV = "IFNB+MARV", IFNB_Mock = "IFNB", IFNY_Mock = "IFNG")
+EXTRA <- Sys.getenv("EXTRA", "Mock_EBOV,IFNY_EBOV"); EXTRA <- if (EXTRA %in% c("", "none")) character(0) else trimws(strsplit(EXTRA, ",")[[1]])   # extra groups drawn after Untreated and the treated group; EXTRA=none for the two-group version
+G <- c(Untreated = "Mock_Mock", setNames(GROUP, NAME), setNames(EXTRA, ifelse(EXTRA %in% names(LAB), LAB[EXTRA], EXTRA))); SUF <- if (length(EXTRA)) paste0("_plus_", paste(names(G)[-(1:2)], collapse = "_")) else ""
+SUF <- gsub("\\+", "", SUF)
 PROJ <- Sys.getenv("PROJ", unset = file.path(
   Sys.getenv("HOME"),
   "Documents/aviti_rnaseq/2025/aviti",
@@ -39,9 +42,9 @@ save_ph <- function(mat, name, pal, brk, at, text, title) {
   pdf(file.path(OUT, paste0(name, ".pdf")), width = W, height = H); grid.newpage(); grid.draw(ph$gtable); invisible(dev.off())
 }
 Z <- t(scale(t(X))); lz <- as.numeric(quantile(abs(Z), CAP_Q))
-save_ph(Z, paste0("heatmap_top", nrow(Z), "_", NAME, "_vs_Mock_rowZ"), colorRampPalette(c(BLUE, "white", "#C53030"))(100), seq(-lz, lz, length.out = 101), c(-lz, 0, lz), c(sprintf("%.1f", -lz), "0", sprintf("%.1f", lz)),
-        sprintf("Top %d upregulated protein-coding genes, %s vs Mock: row z-score", nrow(Z), NAME))
+save_ph(Z, paste0("heatmap_top", nrow(Z), "_", NAME, "_vs_Mock", SUF, "_rowZ"), colorRampPalette(c(BLUE, "white", "#C53030"))(100), seq(-lz, lz, length.out = 101), c(-lz, 0, lz), c(sprintf("%.1f", -lz), "0", sprintf("%.1f", lz)),
+        sprintf("Top %d upregulated protein-coding genes (%s vs Mock), all conditions: row z-score", nrow(Z), NAME))
 Xm <- X - rowMeans(X[, seq_len(nrep[[1]]), drop = FALSE]); lm <- as.numeric(quantile(abs(Xm), CAP_Q))
-save_ph(Xm, paste0("heatmap_top", nrow(Xm), "_", NAME, "_vs_Mock_mockgrey"), colorRampPalette(c(BLUE, "#F2F2F2", "#C53030"))(100), seq(-lm, lm, length.out = 101), c(-lm, 0, lm), c(sprintf("%.1f", -lm), "0 (Mock mean)", sprintf("%.1f", lm)),
-        sprintf("Top %d upregulated protein-coding genes, %s vs Mock: each replicate vs Untreated mean (Mock = grey)", nrow(Xm), NAME))
+save_ph(Xm, paste0("heatmap_top", nrow(Xm), "_", NAME, "_vs_Mock", SUF, "_mockgrey"), colorRampPalette(c(BLUE, "#F2F2F2", "#C53030"))(100), seq(-lm, lm, length.out = 101), c(-lm, 0, lm), c(sprintf("%.1f", -lm), "0 (Mock mean)", sprintf("%.1f", lm)),
+        sprintf("Top %d upregulated genes (%s vs Mock), all conditions: each replicate vs Untreated mean (Mock = grey)", nrow(Xm), NAME))
 message("Saved to: ", OUT)
