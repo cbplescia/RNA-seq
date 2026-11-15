@@ -30,17 +30,33 @@ stat_tab <- if (GRP[1] == "Mock_Mock") bind_rows(lapply(GRP[-1], function(g) { f
   read_csv(f, show_col_types = FALSE) |> transmute(gene_id, code = g, baseMean, lfc = log2FoldChange, padj) })) else NULL
 allg <- read_csv(file.path(RNA, "DE_v2_EBOV_vs_Mock_annotated.csv"), show_col_types = FALSE) |> mutate(key = tolower(gene_name), gid = sub("\\..*$", "", gene_id))
 
+# Genes removed by the low-count pre-filter in 04 are not in the VST object (typical for negative controls such as Alb, Ins2). For those the plot falls back to the unfiltered Salmon counts:
+# log2(reads / size factor + 1), panel labelled "(unfiltered)" - a similar log scale to VST but not VST itself.
+QUANT <- file.path(PROJ, "salmon_quant_v2"); GTF <- file.path(PROJ, "ref", "Mus_musculus.GRCm39.109.gtf"); Qc <- list(); SF <- NULL; RAW_USED <- FALSE
+get_sf <- function() { if (is.null(SF)) { dd <- readRDS(file.path(RNA, "dds_v2_decoyAware_hostNormalised.rds")); s <- sizeFactors(dd); if (is.null(s)) { nf <- normalizationFactors(dd); s <- exp(colMeans(log(nf))); s <- s / exp(mean(log(s))) }; names(s) <- colnames(dd); SF <<- s }; SF }
+get_q <- function(s) { if (is.null(Qc[[s]])) Qc[[s]] <<- read_tsv(file.path(QUANT, s, "quant.sf"), col_types = "cdddd", progress = FALSE); Qc[[s]] }
+raw_gene <- function(g) {
+  ln <- tryCatch(readLines(pipe(sprintf("grep -F 'gene_name \"%s\"' '%s'", g, GTF))), error = function(e) character(0), warning = function(w) character(0))
+  f <- strsplit(ln, "\t"); f <- f[vapply(f, length, 1L) >= 9]; f <- f[vapply(f, function(x) x[3] == "transcript", TRUE)]
+  gv <- function(x, k) sub(paste0('.*', k, ' "([^"]+)".*'), "\\1", x)
+  f <- f[vapply(f, function(x) tolower(gv(x[9], "gene_name")) == tolower(g), TRUE)]
+  if (!length(f)) return(NULL)
+  tx <- sub("\\..*$", "", vapply(f, function(x) gv(x[9], "transcript_id"), "")); sym <- gv(f[[1]][9], "gene_name"); sf <- get_sf(); sm <- colnames(vm)[grp %in% GRP]
+  vals <- vapply(sm, function(s) { q <- get_q(s); log2(sum(q$NumReads[sub("\\..*$", "", q$Name) %in% tx]) / sf[[s]] + 1) }, 0)
+  RAW_USED <<- TRUE; message("'", g, "' was removed by the low-count pre-filter; plotting log2(normalised Salmon reads + 1) instead of VST (mean over groups: ", paste(sprintf("%s %.2f", gl(GRP), vapply(GRP, function(x) mean(vals[grp[match(sm, colnames(vm))] == x]), 0)), collapse = ", "), ")")
+  tibble(gene = paste0(sym, " (unfiltered)"), gene_id = NA_character_, sample = sm, code = grp[match(sm, colnames(vm))], group = factor(gl(grp[match(sm, colnames(vm))]), levels = gl(GRP)), vst = as.numeric(vals))
+}
 rows <- list()
 for (g in GENES) {
   h <- allg |> filter(key == tolower(g) | tolower(gid) == tolower(g)) |> distinct(gene_id, .keep_all = TRUE); h <- h[h$gene_id %in% rownames(vm), , drop = FALSE]
-  if (!nrow(h)) { message("'", g, "' is not in the VST object (not found, or removed by the pre-filter in 04)"); next }
+  if (!nrow(h)) { rr <- tryCatch(raw_gene(g), error = function(e) { message("could not read the raw counts for '", g, "': ", conditionMessage(e)); NULL }); if (is.null(rr)) message("'", g, "' was not found (not in the VST object and not in the GTF under that symbol)") else rows[[length(rows) + 1]] <- rr; next }
   for (k in seq_len(nrow(h))) { smp <- colnames(vm)[grp %in% GRP]; cd <- grp[match(smp, colnames(vm))]
     rows[[length(rows) + 1]] <- tibble(gene = h$gene_name[k], gene_id = h$gene_id[k], sample = smp, code = cd, group = factor(gl(cd), levels = gl(GRP)), vst = as.numeric(vm[h$gene_id[k], smp])) }
 }
 if (!length(rows)) stop("None of the genes were found")
 D <- bind_rows(rows); D$gene <- factor(D$gene, levels = unique(D$gene))     # panels in the order the genes were listed in GENE
 ann <- D |> group_by(gene, gene_id, code, group) |> summarise(top = max(vst), .groups = "drop")
-if (!is.null(stat_tab)) ann <- ann |> left_join(stat_tab, by = c("gene_id", "code")) |> filter(code != GRP[1]) |> mutate(txt = sprintf("log2FC %+.2f\n%s", lfc, stars(padj))) else ann <- ann |> mutate(txt = "")
+if (!is.null(stat_tab)) ann <- ann |> left_join(stat_tab, by = c("gene_id", "code")) |> filter(code != GRP[1]) |> mutate(txt = ifelse(is.na(lfc), "", sprintf("log2FC %+.2f\n%s", lfc, stars(padj)))) else ann <- ann |> mutate(txt = "")
 csvn <- paste0("boxplot_vst_", paste(GENES, collapse = "_"), "_", paste(GRP, collapse = "_")); if (nchar(csvn) > 120) csvn <- paste0("boxplot_vst_", length(GENES), "genes_", paste(GRP, collapse = "_")); write_csv(D |> arrange(gene, group), file.path(OUT, paste0(csvn, ".csv")))
 print(as.data.frame(D |> group_by(gene, group) |> summarise(n = n(), mean_vst = round(mean(vst), 2), min = round(min(vst), 2), max = round(max(vst), 2), .groups = "drop")), row.names = FALSE)
 if (!is.null(stat_tab)) print(as.data.frame(ann |> transmute(gene, group, baseMean = round(baseMean, 1), log2FC = round(lfc, 2), padj = signif(padj, 2))), row.names = FALSE)
@@ -50,7 +66,7 @@ p <- ggplot(D, aes(group, vst, fill = group)) + geom_boxplot(width = 0.55, outli
   geom_point(position = position_jitter(width = 0.08, height = 0, seed = 1), size = 2.2, shape = 21, colour = INK, fill = "white", stroke = 0.6) +
   geom_text(data = ann, aes(x = group, y = top + off, label = txt), inherit.aes = FALSE, colour = INK, size = 3.2, lineheight = 0.95, vjust = 0) +
   facet_wrap(~gene, scales = "free_y", ncol = min(n_distinct(D$gene), NCOL)) + scale_fill_manual(values = cols, guide = "none") + scale_y_continuous(expand = expansion(mult = c(0.08, 0.3))) +
-  labs(title = if (nzchar(TITLE)) paste0(TITLE, ": VST expression, ", paste(gl(GRP), collapse = ", ")) else if (n_distinct(D$gene) <= 4) sprintf("%s: VST expression, %s", paste(unique(D$gene), collapse = ", "), paste(gl(GRP), collapse = ", ")) else sprintf("VST expression of %d genes, %s", n_distinct(D$gene), paste(gl(GRP), collapse = ", ")), subtitle = "box = median and quartiles of the replicates; points = individual samples; stat = DESeq2 vs Mock (shrunk log2FC, BH padj; ns = not significant)",
+  labs(title = if (nzchar(TITLE)) paste0(TITLE, ": VST expression, ", paste(gl(GRP), collapse = ", ")) else if (n_distinct(D$gene) <= 4) sprintf("%s: VST expression, %s", paste(unique(D$gene), collapse = ", "), paste(gl(GRP), collapse = ", ")) else sprintf("VST expression of %d genes, %s", n_distinct(D$gene), paste(gl(GRP), collapse = ", ")), subtitle = paste0("box = median and quartiles of the replicates; points = individual samples; stat = DESeq2 vs Mock (shrunk log2FC, BH padj; ns = not significant)", if (RAW_USED) "\npanels marked (unfiltered) were removed by the low-count pre-filter: they show log2(normalised reads + 1), not VST, and have no DE stat" else ""),
        x = NULL, y = "VST expression (log2 scale)") +
   theme_bw(base_size = 12) + theme(panel.grid.minor = element_blank(), panel.grid.major.x = element_blank(), panel.grid.major.y = element_line(colour = "grey92", linewidth = 0.3),
         panel.border = element_rect(colour = "grey70"), axis.text = element_text(colour = INK), axis.title = element_text(colour = INK), plot.title = element_text(colour = INK, face = "bold"),
