@@ -38,7 +38,7 @@ for (g in GENES) {
     rows[[length(rows) + 1]] <- tibble(gene = h$gene_name[k], gene_id = h$gene_id[k], sample = smp, code = cd, group = factor(gl(cd), levels = gl(GRP)), vst = as.numeric(vm[h$gene_id[k], smp])) }
 }
 if (!length(rows)) stop("None of the genes were found")
-D <- bind_rows(rows)
+D <- bind_rows(rows); D$gene <- factor(D$gene, levels = unique(D$gene))     # panels in the order the genes were listed in GENE
 ann <- D |> group_by(gene, gene_id, code, group) |> summarise(top = max(vst), .groups = "drop")
 if (!is.null(stat_tab)) ann <- ann |> left_join(stat_tab, by = c("gene_id", "code")) |> filter(code != GRP[1]) |> mutate(txt = sprintf("log2FC %+.2f\n%s", lfc, stars(padj))) else ann <- ann |> mutate(txt = "")
 csvn <- paste0("boxplot_vst_", paste(GENES, collapse = "_"), "_", paste(GRP, collapse = "_")); if (nchar(csvn) > 120) csvn <- paste0("boxplot_vst_", length(GENES), "genes_", paste(GRP, collapse = "_")); write_csv(D |> arrange(gene, group), file.path(OUT, paste0(csvn, ".csv")))
