@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 # Box plots of RAW READ COUNTS (Salmon NumReads summed over each gene's transcripts, from the UNFILTERED quantification, so genes removed by the pre-filter are included) in the untreated (Mock) samples,
 # ALL groups in ONE figure (one panel per group; panel width follows the number of genes). Each gene's box = its replicates; the mean number of reads is printed above the box; the x-axis shows the mouse gene symbol and, underneath it, the name you gave when it differs.
-# Groups and name mapping are defined in SETS below (mouse symbol = name as given):  edit freely.   Assumptions: B-tubulin = Tubb5; clec2 = Clec1b (CLEC-2); F4/80 = Adgre1; CD64 = Fcgr1; IBA1 = Aif1; Tim4 = Timd4; CRIg = Vsig4; CD11c = Itgax; Gpnmb1 = Gpnmb; CXCR1 = Cxcr1. CX3CR1 is in BOTH the capsule and the central vein group (a gene may appear in more than one group).
+# Groups and name mapping are defined in SETS below (mouse symbol = name as given):  edit freely.   Assumptions: B-tubulin = Tubb5; clec2 = Clec1b (CLEC-2); F4/80 = Adgre1; CD64 = Fcgr1; IBA1 = Aif1; Tim4 = Timd4; CRIg = Vsig4; CD11c = Itgax; Gpnmb1 = Gpnmb; CX3CR1 is in BOTH the capsule and the central vein group (central vein = CX3CR1 only); a gene may appear in more than one group.
 # Outputs (requant_v2_outputs/figures_raw_reads/): rawreads_all_groups.png / .pdf (everything in one figure; rawreads_<group>.png per group only with INDIVIDUAL=1), raw_reads_per_replicate.tsv (every gene x sample), raw_reads_summary.tsv (mean / min / max reads, TPM, kept by the pre-filter?).
 # Env: ROWS (2 = two rows of panels, needs the R package patchwork: conda install -c conda-forge r-patchwork; 1 = one long row; default 2 if patchwork is installed), ROW1 (groups on the first row), INDIVIDUAL=1, GROUPS (default Mock_Mock = untreated; e.g. GROUPS=Mock_Mock,IFNB_Mock,IFNY_Mock to dodge several groups side by side), PROJ.   Usage: Rscript 134_raw_reads_boxplots_by_group.R   (PROJ from 'source setup_session.sh')
 
@@ -12,7 +12,7 @@ SETS <- list(
   `General`      = c(Adgre1 = "F4/80", Fcgr1 = "CD64", Mertk = "MerTK", Aif1 = "IBA1"),
   `Kupffer`      = c(Timd4 = "Tim4", Clec4f = "Clec4f", Clec1b = "Clec2", Vsig4 = "CRIg/VSIG4", Folr2 = "FOLR2", Cd163 = "CD163", Cd5l = "CD5L", Marco = "MARCO"),
   `Capsule`      = c(Cx3cr1 = "CX3CR1", Itgax = "CD11c"),
-  `Central vein` = c(Cx3cr1 = "CX3CR1", Cxcr1 = "CXCR1"),
+  `Central vein` = c(Cx3cr1 = "CX3CR1"),
   `Bile duct`    = c(Trem2 = "Trem2", Spp1 = "Spp1", Gpnmb = "Gpnmb1", Cd9 = "CD9"))
 ORD <- c("Mock_Mock", "IFNB_Mock", "IFNY_Mock", "Mock_EBOV", "IFNB_EBOV", "IFNY_EBOV", "Mock_MARV", "IFNB_MARV", "IFNY_MARV", "Mock_EVLP", "Mock_MVLP")
 LAB <- c(Mock_Mock = "Mock (untreated)", IFNB_Mock = "IFNB", IFNY_Mock = "IFNG", Mock_EBOV = "EBOV", IFNB_EBOV = "IFNB+EBOV", IFNY_EBOV = "IFNG+EBOV", Mock_MARV = "MARV", IFNB_MARV = "IFNB+MARV", IFNY_MARV = "IFNG+MARV", Mock_EVLP = "EVLP", Mock_MVLP = "MVLP")
