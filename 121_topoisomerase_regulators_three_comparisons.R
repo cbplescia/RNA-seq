@@ -5,7 +5,7 @@
 #   SUMO / ubiquitin control (UBE2I, SUMO, PIAS, TOPORS, RNF4, ZNF451, SENP1) | kinases (CK2, CDK1, PLK1, AURKB) | chromatin / condensin partners (SMC2, SMC4, KIF4A) | other TOP1/TOP2 interactors (NCL, NPM1, WRN, TP53, BRCA1, HMGB1)
 # Shrunk log2FC from DE_v2_*_annotated.csv, error bars +/- 1 lfcSE, stars = padj of each comparison against Mock (* < 0.05, ** < 0.01, *** < 0.001, ns), dagger on the gene name = baseMean < 50. Genes missing from the tables (removed by the pre-filter in 04, or a
 # different symbol) are listed as "Not found". Symbols are matched ignoring case; old / alternative names are in ALIAS.
-# Env COMPS (comma list of contrasts: IFNB_vs_Mock,IFNY_vs_Mock,EBOV_vs_Mock,IFNB_EBOV_vs_Mock,IFNY_EBOV_vs_Mock; default IFNB, EBOV, IFNB+EBOV), GENES="Label=Gene1,Gene2;Label2=Gene3" (any gene sets), OUT_NAME, TITLE.   Writes bars_<OUT_NAME>_pageN.png/.pdf and topoisomerase_regulators_three_comparisons.csv to requant_v2_outputs/figures_gene_bars/.   Env: PER_PAGE (default 26 genes per page), ONLY_SIG=1 (genes with padj < 0.05 in at least one comparison)
+# Env BY_GROUP=1 (one figure per gene group, named after the group), COMPS (comma list of contrasts: IFNB_vs_Mock,IFNY_vs_Mock,EBOV_vs_Mock,IFNB_EBOV_vs_Mock,IFNY_EBOV_vs_Mock; default IFNB, EBOV, IFNB+EBOV), GENES="Label=Gene1,Gene2;Label2=Gene3" (any gene sets), OUT_NAME, TITLE.   Writes bars_<OUT_NAME>_pageN.png/.pdf and topoisomerase_regulators_three_comparisons.csv to requant_v2_outputs/figures_gene_bars/.   Env: PER_PAGE (default 26 genes per page), ONLY_SIG=1 (genes with padj < 0.05 in at least one comparison)
 # Usage: Rscript 121_topoisomerase_regulators_three_comparisons.R   (PROJ from 'source setup_session.sh')
 
 suppressPackageStartupMessages({ library(readr); library(dplyr); library(tidyr); library(ggplot2) })
@@ -56,6 +56,7 @@ if (!nrow(D)) stop("No genes to plot")
 # pages: whole classes until PER_PAGE genes would be exceeded
 gsz <- D |> distinct(class, gene_id) |> dplyr::count(class) |> arrange(class); pg <- 1; used <- 0; gpage <- c()
 for (i in seq_len(nrow(gsz))) { if (used > 0 && used + gsz$n[i] > PER_PAGE) { pg <- pg + 1; used <- 0 }; gpage[as.character(gsz$class[i])] <- pg; used <- used + gsz$n[i] }
+BY_GROUP <- Sys.getenv("BY_GROUP") == "1"; if (BY_GROUP) gpage <- setNames(seq_len(nrow(gsz)), as.character(gsz$class))     # BY_GROUP=1: one figure (page) per gene group
 D$page <- unname(gpage[as.character(D$class)])
 print(as.data.frame(D |> transmute(class, gene = shown, baseMean = round(baseMean, 1), comparison, log2FC = round(lfc, 2), padj = signif(padj, 2)) |> tidyr::pivot_wider(names_from = comparison, values_from = c(log2FC, padj))), row.names = FALSE)
 write_csv(D |> select(class, gene = shown, gene_id, baseMean, comparison, log2FC = lfc, lfcSE = se, padj, page), file.path(OUT, paste0(OUT_NAME, "_three_comparisons.csv")))
@@ -73,6 +74,7 @@ for (pgi in seq_len(npg)) {
           axis.text = element_text(colour = INK), axis.text.x = element_text(face = "italic", angle = 45, hjust = 1), plot.title = element_text(colour = INK, face = "bold", size = 11), plot.subtitle = element_text(colour = "grey35", size = 8.5),
           legend.position = "top", strip.background = element_rect(fill = "grey93", colour = "grey70"), strip.text = element_text(colour = INK, face = "bold", size = 8))
   w <- max(7, 0.85 * nlevels(Dp$xlab) + 3)
-  ggsave(file.path(OUT, paste0("bars_", OUT_NAME, "_page", pgi, ".png")), p, width = w, height = 5.4, dpi = 300); ggsave(file.path(OUT, paste0("bars_", OUT_NAME, "_page", pgi, ".pdf")), p, width = w, height = 5.4)
+  fn <- paste0("bars_", OUT_NAME, if (BY_GROUP) paste0("_", gsub("[^A-Za-z0-9]+", "_", tolower(as.character(Dp$class[1])))) else paste0("_page", pgi))
+  ggsave(file.path(OUT, paste0(fn, ".png")), p, width = w, height = 5.4, dpi = 300); ggsave(file.path(OUT, paste0(fn, ".pdf")), p, width = w, height = 5.4)
 }
 message("\nSaved ", npg, " page(s) to: ", OUT)
