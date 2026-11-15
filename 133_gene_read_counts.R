@@ -9,7 +9,7 @@
 # Env: GENE (comma list of mouse symbols, case as in the GTF), GROUPS (default Mock_Mock,IFNB_Mock,IFNY_Mock; use GROUPS=all for every group), NCOL (panels per row, 6), TITLE, PROJ.   Usage: GENE=Alb,Ins2,Axl Rscript 133_gene_read_counts.R   (PROJ from 'source setup_session.sh')
 
 suppressPackageStartupMessages({ library(readr); library(dplyr); library(tidyr); library(ggplot2); library(DESeq2) })
-select <- dplyr::select; filter <- dplyr::filter
+select <- dplyr::select; filter <- dplyr::filter; count <- dplyr::count; summarise <- dplyr::summarise; mutate <- dplyr::mutate; arrange <- dplyr::arrange   # attached Bioconductor / other packages can mask these verbs
 GENES <- trimws(strsplit(Sys.getenv("GENE", "Alb,Ins2,Krt14,Snap25,Axl"), ",")[[1]]); GENES <- GENES[nzchar(GENES)]
 ORD <- c("Mock_Mock", "IFNB_Mock", "IFNY_Mock", "Mock_EBOV", "IFNB_EBOV", "IFNY_EBOV", "Mock_MARV", "IFNB_MARV", "IFNY_MARV", "Mock_EVLP", "Mock_MVLP")
 LAB <- c(Mock_Mock = "Mock", IFNB_Mock = "IFNB", IFNY_Mock = "IFNG", Mock_EBOV = "EBOV", IFNB_EBOV = "IFNB+EBOV", IFNY_EBOV = "IFNG+EBOV", Mock_MARV = "MARV", IFNB_MARV = "IFNB+MARV", IFNY_MARV = "IFNG+MARV", Mock_EVLP = "EVLP", Mock_MVLP = "MVLP")

@@ -6,7 +6,7 @@
 # Env: ROWS (2 = two rows of panels, needs the R package patchwork: conda install -c conda-forge r-patchwork; 1 = one long row; default 2 if patchwork is installed), ROW1 (groups on the first row), INDIVIDUAL=1, GROUPS (default Mock_Mock = untreated; e.g. GROUPS=Mock_Mock,IFNB_Mock,IFNY_Mock to dodge several groups side by side), PROJ.   Usage: Rscript 134_raw_reads_boxplots_by_group.R   (PROJ from 'source setup_session.sh')
 
 suppressPackageStartupMessages({ library(readr); library(dplyr); library(tidyr); library(ggplot2); library(DESeq2) })
-select <- dplyr::select; filter <- dplyr::filter
+select <- dplyr::select; filter <- dplyr::filter; count <- dplyr::count; summarise <- dplyr::summarise; mutate <- dplyr::mutate; arrange <- dplyr::arrange   # attached Bioconductor / other packages can mask these verbs
 SETS <- list(
   `Controls`     = c(Tubb5 = "B-tubulin", Alb = "Alb", Ins2 = "Ins2", Krt14 = "Krt14", Snap25 = "Snap25"),
   `General`      = c(Adgre1 = "F4/80", Fcgr1 = "CD64", Mertk = "MerTK", Aif1 = "IBA1"),
