@@ -62,4 +62,13 @@ p2 <- base("norm", "normalised reads (reads / size factor, log scale)", "dashed 
 save2(p2, "normalised_counts_vs_filter", w, h)
 p3 <- base("TPM", "TPM (log scale)", "transcripts per million: length-corrected, comparable between genes within a sample") + labs(title = paste0(ttl, ": TPM"))
 save2(p3, "tpm_by_group", w, h)
+# one combined figure: raw reads (top row) and normalised reads (bottom row), same groups, for a handful of genes
+if (ng <= NCOL) {
+  Lc <- L |> pivot_longer(c(reads, norm), names_to = "measure", values_to = "value") |> mutate(measure = factor(measure, levels = c("reads", "norm"), labels = c("raw reads", "normalised reads (reads / size factor)")))
+  mm <- Lc |> group_by(panel, group, measure) |> summarise(top = max(value), m = mean(value), .groups = "drop") |> mutate(txt = format(round(m), big.mark = ","))
+  pc <- ggplot(Lc, aes(group, value, fill = group)) + geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.8, colour = INK, linewidth = 0.35) + geom_point(position = position_jitter(width = 0.08, height = 0, seed = 1), size = 1.8, shape = 21, colour = INK, fill = "white", stroke = 0.5) +
+    geom_text(data = mm, mapping = aes(x = group, y = top, label = txt), inherit.aes = FALSE, vjust = -0.9, size = 2.7, colour = INK) + facet_grid(measure ~ panel, scales = "free_y") + scale_fill_manual(values = COL, guide = "none") +
+    scale_y_continuous(trans = scales::pseudo_log_trans(base = 10), breaks = brk, labels = scales::label_comma(), expand = expansion(mult = c(0.05, 0.18))) +
+    labs(title = paste0(ttl, ": raw and normalised reads"), subtitle = "every dot = one sample; number above each box = mean; log scale; normalised = raw reads / DESeq2 size factor (host-normalised)", x = NULL, y = NULL) + theme_t + theme(axis.text.x = element_text(angle = 40, hjust = 1))
+  save2(pc, "reads_and_normalised", 1.4 + ncl * (0.62 * length(GRP) + 0.9), 7.4) }
 message("\nSaved to: ", OUT)
