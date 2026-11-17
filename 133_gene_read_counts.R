@@ -6,11 +6,11 @@
 #   normalized    raw reads / DESeq2 size factor (the scale of the pre-filter and of DESeq2; best for comparing the SAME gene between conditions)
 # The pre-filter in 04 kept a gene only if it had >= 10 normalized reads in >= 3 of the 33 samples; genes that fail are not in the DE tables or the VST object, which is why they cannot be drawn on the VST plot. VST is a good scale for genes that passed (clustering, plots) but is not defined for removed genes.
 # Outputs (requant_v2_outputs/figures_gene_counts/): gene_read_counts_long.tsv (gene x sample: reads, TPM, normalized), gene_read_counts_by_group.tsv (mean / min / max per group), reads_per_sample (raw reads, log scale), normalized_counts_vs_filter (with the pre-filter cut-off drawn), tpm_by_group (.png/.pdf).
-# Env: OUT_NAME (suffix for the output file names), GENE (comma list of mouse symbols, case as in the GTF), GROUPS (default Mock_Mock,IFNB_Mock,IFNY_Mock; use GROUPS=all for every group), NCOL (panels per row, 6), TITLE, PROJ.   Usage: GENE=Alb,Ins2,Axl Rscript 133_gene_read_counts.R   (PROJ from 'source setup_session.sh')
+# Env: PATTERN (regex; adds all protein-coding genes with that symbol start, e.g. PATTERN='Trim[0-9]'; use GENE= for an empty list), OUT_NAME (suffix for the output file names), GENE (comma list of mouse symbols, case as in the GTF), GROUPS (default Mock_Mock,IFNB_Mock,IFNY_Mock; use GROUPS=all for every group), NCOL (panels per row, 6), TITLE, PROJ.   Usage: GENE=Alb,Ins2,Axl Rscript 133_gene_read_counts.R   (PROJ from 'source setup_session.sh')
 
 suppressPackageStartupMessages({ library(readr); library(dplyr); library(tidyr); library(ggplot2); library(DESeq2) })
 select <- dplyr::select; filter <- dplyr::filter; count <- dplyr::count; summarise <- dplyr::summarise; mutate <- dplyr::mutate; arrange <- dplyr::arrange   # attached Bioconductor / other packages can mask these verbs
-GENES <- trimws(strsplit(Sys.getenv("GENE", "Alb,Ins2,Krt14,Snap25,Axl"), ",")[[1]]); GENES <- GENES[nzchar(GENES)]
+GENES <- trimws(strsplit(Sys.getenv("GENE", "Alb,Ins2,Krt14,Snap25,Axl"), ",")[[1]]); GENES <- GENES[nzchar(GENES) & !tolower(GENES) %in% c("none", "-")]
 ORD <- c("Mock_Mock", "IFNB_Mock", "IFNY_Mock", "Mock_EBOV", "IFNB_EBOV", "IFNY_EBOV", "Mock_MARV", "IFNB_MARV", "IFNY_MARV", "Mock_EVLP", "Mock_MVLP")
 LAB <- c(Mock_Mock = "Mock", IFNB_Mock = "IFNB", IFNY_Mock = "IFNG", Mock_EBOV = "EBOV", IFNB_EBOV = "IFNB+EBOV", IFNY_EBOV = "IFNG+EBOV", Mock_MARV = "MARV", IFNB_MARV = "IFNB+MARV", IFNY_MARV = "IFNG+MARV", Mock_EVLP = "EVLP", Mock_MVLP = "MVLP")
 COL <- c(Mock = "#7F7F7F", EBOV = "#1B7837", IFNB = "#2B6CB0", `IFNB+EBOV` = "#9BD08E", IFNG = "#D69E2E", `IFNG+EBOV` = "#E8C77A", MARV = "#8C510A", `IFNB+MARV` = "#C7A27C", `IFNG+MARV` = "#DCC9A8", EVLP = "#6A51A3", MVLP = "#CBA4D8")
@@ -32,6 +32,13 @@ GRP <- if (identical(tolower(Sys.getenv("GROUPS", "Mock_Mock,IFNB_Mock,IFNY_Mock
 if (!nrow(cd)) stop("no samples in the requested groups")
 
 # ---- gene -> transcripts, one pass over the GTF ----
+# PATTERN: add every protein-coding gene whose symbol starts with this regex (e.g. PATTERN='Trim[0-9]' = all TRIM genes), ordered by number
+PATTERN <- Sys.getenv("PATTERN", "")
+if (nzchar(PATTERN)) {
+  lp <- tryCatch(readLines(pipe(sprintf("grep -E 'gene_name \"(%s)' '%s'", PATTERN, GTF))), error = function(e) character(0), warning = function(w) character(0)); fp <- strsplit(lp, "\t")
+  fp <- fp[vapply(fp, function(x) length(x) >= 9 && x[3] == "gene" && grepl('gene_biotype "protein_coding"', x[9]), TRUE)]
+  nm <- unique(vapply(fp, function(x) sub('.*gene_name "([^"]+)".*', "\\1", x[9]), "")); nm <- nm[grepl(paste0("^(", PATTERN, ")"), nm)]
+  nm <- nm[order(suppressWarnings(as.numeric(sub("^[A-Za-z]+([0-9]+).*$", "\\1", nm))), nm)]; message(length(nm), " protein-coding genes match '", PATTERN, "'"); GENES <- unique(c(GENES, nm)) }
 pat <- tempfile(); writeLines(sprintf('gene_name "%s"', GENES), pat); message("looking the genes up in the GTF (one pass) ...")
 ln <- tryCatch(readLines(pipe(sprintf("grep -F -f '%s' '%s'", pat, GTF))), error = function(e) character(0), warning = function(w) character(0)); f <- strsplit(ln, "\t"); f <- f[vapply(f, length, 1L) >= 9]; f <- f[vapply(f, function(x) x[3] == "transcript", TRUE)]
 gv <- function(x, k) sub(paste0('.*', k, ' "([^"]+)".*'), "\\1", x)
