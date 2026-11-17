@@ -26,7 +26,7 @@ save2 <- function(p, name, w, h) { name <- suf(name); ggsave(file.path(OUT, past
 nov <- function(x) sub("\\..*$", "", x); gl <- function(g) ifelse(g %in% names(LAB), LAB[g], g)
 theme_t <- theme_bw(base_size = 10) + theme(panel.grid.minor = element_blank(), panel.border = element_rect(colour = "grey70"), axis.text = element_text(colour = INK), plot.title = element_text(colour = INK, face = "bold", size = 11), plot.subtitle = element_text(colour = "grey35", size = 8.5), strip.background = element_rect(fill = "grey95", colour = "grey70"), strip.text = element_text(face = "bold.italic", colour = INK, size = 8))
 
-dds <- readRDS(file.path(RNA, "dds_v2_decoyAware_hostNormalized.rds")); cd <- as.data.frame(colData(dds)); cd$sample <- rownames(cd); cd$group <- as.character(cd$group)
+dds <- readRDS(file.path(RNA, "dds_v2_decoyAware_hostNormalised.rds")); cd <- as.data.frame(colData(dds)); cd$sample <- rownames(cd); cd$group <- as.character(cd$group)
 sf <- sizeFactors(dds); if (is.null(sf)) { nf <- normalizationFactors(dds); sf <- exp(colMeans(log(nf))); sf <- sf / exp(mean(log(sf))); message("size factors derived from the normalizationFactors (tximport object)") }; names(sf) <- colnames(dds); kept <- nov(rownames(dds))
 GRP <- if (identical(tolower(Sys.getenv("GROUPS", "Mock_Mock,IFNB_Mock,IFNY_Mock")), "all")) ORD[ORD %in% cd$group] else trimws(strsplit(Sys.getenv("GROUPS", "Mock_Mock,IFNB_Mock,IFNY_Mock"), ",")[[1]]); cd <- cd |> filter(group %in% GRP)
 if (!nrow(cd)) stop("no samples in the requested groups")
